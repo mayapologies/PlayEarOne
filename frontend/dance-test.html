@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dance Game - Test Console</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            color: #4CAF50;
+            text-align: center;
+        }
+        
+        .test-section {
+            background: #16213e;
+            border: 1px solid #4CAF50;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        
+        .test-section h2 {
+            color: #4CAF50;
+            margin-top: 0;
+        }
+        
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 5px;
+        }
+        
+        button:hover {
+            background: #66BB6A;
+        }
+        
+        button:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+        
+        .output {
+            background: #0f3460;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 10px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .log-entry {
+            margin: 5px 0;
+            padding: 5px;
+            border-left: 3px solid #4CAF50;
+            padding-left: 10px;
+        }
+        
+        .log-entry.error {
+            border-left-color: #ef4444;
+            color: #fca5a5;
+        }
+        
+        .log-entry.success {
+            border-left-color: #4CAF50;
+            color: #86efac;
+        }
+        
+        input[type="text"] {
+            width: calc(100% - 24px);
+            padding: 10px;
+            border: 1px solid #4CAF50;
+            border-radius: 5px;
+            background: #0f3460;
+            color: white;
+            font-size: 14px;
+            margin: 10px 0;
+        }
+        
+        .info-box {
+            background: #2a2a3e;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+            border-left: 4px solid #fbbf24;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎭 Dance Game - Test Console</h1>
+    
+    <div class="info-box">
+        <strong>ℹ️ Instructions:</strong><br>
+        This page provides test utilities for the dance game. Open the browser console (F12) to see additional logs.
+        Use these tests to verify functionality without needing to record 30 seconds of audio.
+    </div>
+    
+    <!-- Test 1: Mock Transcript -->
+    <div class="test-section">
+        <h2>Test 1: Mock Transcript</h2>
+        <p>Test dance generation with a custom transcript (no recording needed)</p>
+        <input type="text" id="customTranscript" placeholder="Enter dance description..." 
+               value="Wave your arms up and down, spin around, kick high, and bow">
+        <button onclick="runMockTest()">▶️ Run Mock Dance</button>
+        <div class="output" id="mockOutput"></div>
+    </div>
+    
+    <!-- Test 2: All Poses -->
+    <div class="test-section">
+        <h2>Test 2: All Poses Showcase</h2>
+        <p>Cycle through all 10 available dance poses</p>
+        <button onclick="runAllPosesTest()">▶️ Test All Poses</button>
+        <div class="output" id="posesOutput"></div>
+    </div>
+    
+    <!-- Test 3: Predefined Tests -->
+    <div class="test-section">
+        <h2>Test 3: Predefined Scenarios</h2>
+        <p>Test common dance descriptions</p>
+        <button onclick="runTest('simple')">Simple Commands</button>
+        <button onclick="runTest('complex')">Complex Sequence</button>
+        <button onclick="runTest('energetic')">High Energy</button>
+        <button onclick="runTest('graceful')">Graceful Moves</button>
+        <div class="output" id="scenarioOutput"></div>
+    </div>
+    
+    <!-- Test 4: Narrator Toggle -->
+    <div class="test-section">
+        <h2>Test 4: Narrator Control</h2>
+        <p>Toggle AI narrator commentary on/off</p>
+        <button onclick="toggleNarratorTest()">🔊 Toggle Narrator</button>
+        <span id="narratorStatus" style="margin-left: 10px;">Status: Unknown</span>
+        <div class="output" id="narratorOutput"></div>
+    </div>
+    
+    <!-- Test 5: Performance -->
+    <div class="test-section">
+        <h2>Test 5: Performance Check</h2>
+        <p>Measure animation FPS and rendering performance</p>
+        <button onclick="runPerformanceTest()">📊 Run Performance Test</button>
+        <div class="output" id="performanceOutput"></div>
+    </div>
+    
+    <script>
+        // Wait for window to load
+        window.addEventListener('load', () => {
+            checkDanceManager();
+        });
+        
+        function checkDanceManager() {
+            if (window.danceManager) {
+                log('mockOutput', 'Dance Manager detected ✓', 'success');
+                updateNarratorStatus();
+            } else {
+                log('mockOutput', 'Warning: Dance Manager not found. Make sure you opened this from the main app.', 'error');
+            }
+        }
+        
+        function log(outputId, message, type = 'info') {
+            const output = document.getElementById(outputId);
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            output.appendChild(entry);
+            output.scrollTop = output.scrollHeight;
+            console.log(`[Test] ${message}`);
+        }
+        
+        function runMockTest() {
+            const transcript = document.getElementById('customTranscript').value;
+            log('mockOutput', `Starting mock test with: "${transcript}"`, 'info');
+            
+            if (window.testDance) {
+                try {
+                    window.testDance(transcript);
+                    log('mockOutput', 'Mock dance started successfully', 'success');
+                } catch (e) {
+                    log('mockOutput', `Error: ${e.message}`, 'error');
+                }
+            } else {
+                log('mockOutput', 'testDance() function not available', 'error');
+            }
+        }
+        
+        function runAllPosesTest() {
+            log('posesOutput', 'Starting all poses test...', 'info');
+            
+            if (window.testAllPoses) {
+                try {
+                    window.testAllPoses();
+                    log('posesOutput', 'All poses test started - watch the canvas!', 'success');
+                    log('posesOutput', 'Poses: IDLE → ARMS_UP → WAVE_LEFT → WAVE_RIGHT → SPIN_LEFT → SPIN_RIGHT → KICK_LEFT → KICK_RIGHT → JUMP → BOW', 'info');
+                } catch (e) {
+                    log('posesOutput', `Error: ${e.message}`, 'error');
+                }
+            } else {
+                log('posesOutput', 'testAllPoses() function not available', 'error');
+            }
+        }
+        
+        function runTest(scenario) {
+            const scenarios = {
+                simple: "Wave your arms then bow",
+                complex: "Jump up and down, spin around three times, kick both legs, and strike a pose",
+                energetic: "Fast arm waves, quick spins, high kicks, and jumping jacks",
+                graceful: "Slowly raise your arms, gently spin, gracefully bow, and return to standing"
+            };
+            
+            const transcript = scenarios[scenario];
+            log('scenarioOutput', `Testing: ${scenario} - "${transcript}"`, 'info');
+            
+            if (window.testDance) {
+                try {
+                    window.testDance(transcript);
+                    log('scenarioOutput', `${scenario} test started`, 'success');
+                } catch (e) {
+                    log('scenarioOutput', `Error: ${e.message}`, 'error');
+                }
+            } else {
+                log('scenarioOutput', 'testDance() function not available', 'error');
+            }
+        }
+        
+        function toggleNarratorTest() {
+            if (window.toggleNarrator) {
+                try {
+                    const enabled = window.toggleNarrator();
+                    log('narratorOutput', `Narrator ${enabled ? 'enabled' : 'disabled'}`, 'success');
+                    updateNarratorStatus();
+                } catch (e) {
+                    log('narratorOutput', `Error: ${e.message}`, 'error');
+                }
+            } else {
+                log('narratorOutput', 'toggleNarrator() function not available', 'error');
+            }
+        }
+        
+        function updateNarratorStatus() {
+            if (window.danceManager) {
+                const status = window.danceManager.narratorEnabled ? '🔊 Enabled' : '🔇 Disabled';
+                document.getElementById('narratorStatus').textContent = `Status: ${status}`;
+            }
+        }
+        
+        function runPerformanceTest() {
+            log('performanceOutput', 'Starting performance test...', 'info');
+            
+            if (!window.danceManager || !window.danceManager.ctx) {
+                log('performanceOutput', 'Canvas not available', 'error');
+                return;
+            }
+            
+            // Run a test animation and measure FPS
+            let frames = 0;
+            let startTime = performance.now();
+            let testDuration = 3000; // 3 seconds
+            
+            function measureFrame() {
+                frames++;
+                const elapsed = performance.now() - startTime;
+                
+                if (elapsed < testDuration) {
+                    requestAnimationFrame(measureFrame);
+                } else {
+                    const fps = frames / (elapsed / 1000);
+                    log('performanceOutput', `Average FPS: ${fps.toFixed(1)}`, fps >= 55 ? 'success' : 'error');
+                    log('performanceOutput', `Total frames: ${frames}`, 'info');
+                    log('performanceOutput', `Test duration: ${(elapsed / 1000).toFixed(2)}s`, 'info');
+                    
+                    if (fps >= 55) {
+                        log('performanceOutput', 'Performance: Excellent ✓', 'success');
+                    } else if (fps >= 30) {
+                        log('performanceOutput', 'Performance: Acceptable', 'info');
+                    } else {
+                        log('performanceOutput', 'Performance: Poor (may need optimization)', 'error');
+                    }
+                }
+            }
+            
+            log('performanceOutput', 'Running 3-second FPS test...', 'info');
+            requestAnimationFrame(measureFrame);
+        }
+        
+        // Auto-check narrator status every 2 seconds
+        setInterval(() => {
+            if (window.danceManager) {
+                updateNarratorStatus();
+            }
+        }, 2000);
+    </script>
+</body>
+</html>

@@ -15,6 +15,13 @@ class DanceManager {
         this.danceStartTime = null;
         this.animationFrame = null;
         
+        // Particle system for visual effects
+        this.particles = [];
+        
+        // AI Narrator
+        this.narrator = this.initializeNarrator();
+        this.narratorEnabled = true;
+        
         this.initializeUI();
         this.setupWebSocketHandlers();
     }
@@ -50,6 +57,38 @@ class DanceManager {
             // Handle dance messages
             this.handleDanceMessage(msg);
         };
+    }
+    
+    initializeNarrator() {
+        if ('speechSynthesis' in window) {
+            const synth = window.speechSynthesis;
+            // Load voices
+            let voice = null;
+            const loadVoice = () => {
+                const voices = synth.getVoices();
+                voice = voices.find(v => v.name.includes('Google') || v.name.includes('Samantha')) || voices[0];
+            };
+            
+            if (synth.getVoices().length > 0) {
+                loadVoice();
+            } else {
+                synth.onvoiceschanged = loadVoice;
+            }
+            
+            return {
+                synth,
+                voice,
+                speak: (text) => {
+                    if (!this.narratorEnabled) return;
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    utterance.voice = voice;
+                    utterance.rate = 1.1;
+                    utterance.pitch = 1.2;
+                    synth.speak(utterance);
+                }
+            };
+        }
+        return null;
     }
     
     startRecording() {
@@ -165,6 +204,11 @@ class DanceManager {
         
         this.updateStatus('🎭 Dancing!');
         
+        // Narrator announcement
+        if (this.narrator) {
+            this.narrator.speak('Let\'s dance!');
+        }
+        
         // Start animation
         this.danceStartTime = performance.now() / 1000;
         this.animateDance();
@@ -178,12 +222,35 @@ class DanceManager {
         if (currentTime > this.dancePlan.duration) {
             // Dance complete
             this.updateStatus('✨ Dance complete!');
+            if (this.narrator) {
+                this.narrator.speak('Fantastic performance!');
+            }
             this.showScore();
             return;
         }
         
+        // Add narrator commentary at keyframes
+        if (this.narrator && currentTime > 0) {
+            const currentKeyframe = this.getCurrentKeyframe(currentTime);
+            if (currentKeyframe && !currentKeyframe.narrated) {
+                currentKeyframe.narrated = true;
+                const comments = [
+                    'Nice move!', 'Looking good!', 'Keep it up!',
+                    'Smooth!', 'Excellent!', 'Beautiful!'
+                ];
+                if (Math.random() < 0.3) {  // 30% chance at each keyframe
+                    const comment = comments[Math.floor(Math.random() * comments.length)];
+                    this.narrator.speak(comment);
+                }
+            }
+        }
+        
         // Clear canvas
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        
+        // Update and draw particles
+        this.updateParticles();
+        this.drawParticles();
         
         // Get current pose
         const pose = this.getPoseAtTime(currentTime);
@@ -223,6 +290,51 @@ class DanceManager {
         const nextAngles = this.getPoseAngles(nextFrame.pose);
         
         return this.interpolatePoses(prevAngles, nextAngles, easedT);
+    }
+    
+    getCurrentKeyframe(time) {
+        const keyframes = this.dancePlan.keyframes;
+        for (let i = 0; i < keyframes.length; i++) {
+            if (Math.abs(keyframes[i].time - time) < 0.1) {
+                return keyframes[i];
+            }
+        }
+        return null;
+    }
+    
+    updateParticles() {
+        // Update existing particles
+        this.particles = this.particles.filter(p => {
+            p.y += p.vy;
+            p.x += p.vx;
+            p.alpha -= 0.02;
+            return p.alpha > 0;
+        });
+        
+        // Add new particles randomly
+        if (Math.random() < 0.15) {
+            this.particles.push({
+                x: Math.random() * this.canvas.width,
+                y: this.canvas.height,
+                vx: (Math.random() - 0.5) * 2,
+                vy: -2 - Math.random() * 3,
+                alpha: 1.0,
+                size: 2 + Math.random() * 3,
+                color: ['#4CAF50', '#8BC34A', '#66BB6A'][Math.floor(Math.random() * 3)]
+            });
+        }
+    }
+    
+    drawParticles() {
+        this.ctx.save();
+        this.particles.forEach(p => {
+            this.ctx.globalAlpha = p.alpha;
+            this.ctx.fillStyle = p.color;
+            this.ctx.beginPath();
+            this.ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+            this.ctx.fill();
+        });
+        this.ctx.restore();
     }
     
     getPoseAngles(poseName) {
@@ -354,6 +466,67 @@ class DanceManager {
         document.getElementById('scoreStyle').textContent = style;
         
         this.scoreDiv.style.display = 'block';
+        
+        // Narrator score announcement
+        if (this.narrator) {
+            setTimeout(() => {
+                this.narrator.speak(`Your style is ${style}!`);
+            }, 1000);
+        }
+    }
+    
+    // ===== TESTING UTILITIES (Phase 3) =====
+    
+    /**
+     * Test with mock transcript - useful for development
+     * Usage: window.testDance("wave arms then spin")
+     */
+    testWithTranscript(transcript) {
+        const mockPlan = {
+            duration: 12.0,
+            keyframes: [
+                {time: 0.0, pose: "IDLE"},
+                {time: 2.0, pose: "ARMS_UP"},
+                {time: 4.0, pose: "ARMS_WAVE_LEFT"},
+                {time: 6.0, pose: "SPIN_RIGHT"},
+                {time: 8.0, pose: "KICK_RIGHT"},
+                {time: 10.0, pose: "BOW"},
+                {time: 12.0, pose: "IDLE"}
+            ]
+        };
+        
+        console.log('[Test] Running mock dance with transcript:', transcript);
+        this.receiveDancePlan(mockPlan, transcript || "Test dance sequence");
+    }
+    
+    /**
+     * Test all poses - cycles through all available poses
+     */
+    testAllPoses() {
+        const poses = ['IDLE', 'ARMS_UP', 'ARMS_WAVE_LEFT', 'ARMS_WAVE_RIGHT', 
+                      'SPIN_LEFT', 'SPIN_RIGHT', 'KICK_LEFT', 'KICK_RIGHT', 'JUMP', 'BOW'];
+        
+        const keyframes = poses.map((pose, i) => ({
+            time: i * 1.5,
+            pose: pose
+        }));
+        
+        const mockPlan = {
+            duration: poses.length * 1.5,
+            keyframes: keyframes
+        };
+        
+        console.log('[Test] Testing all poses:', poses);
+        this.receiveDancePlan(mockPlan, "Testing all dance poses");
+    }
+    
+    /**
+     * Toggle narrator on/off
+     */
+    toggleNarrator() {
+        this.narratorEnabled = !this.narratorEnabled;
+        console.log('[Dance] Narrator', this.narratorEnabled ? 'enabled' : 'disabled');
+        return this.narratorEnabled;
     }
 }
 
@@ -362,5 +535,12 @@ window.addEventListener('DOMContentLoaded', () => {
     if (window.wsClient && document.getElementById('danceCanvas')) {
         window.danceManager = new DanceManager(window.wsClient);
         console.log('[Dance] Manager initialized');
+        
+        // Expose test functions globally (Phase 3)
+        window.testDance = (transcript) => window.danceManager.testWithTranscript(transcript);
+        window.testAllPoses = () => window.danceManager.testAllPoses();
+        window.toggleNarrator = () => window.danceManager.toggleNarrator();
+        
+        console.log('[Dance] Test functions available: testDance(), testAllPoses(), toggleNarrator()');
     }
 });

@@ -528,6 +528,7 @@ Return ONLY valid JSON (no markdown, no explanation):
 }}"""
 
         try:
+            llm_start = time.time()
             response = self.command_parser.client.chat.completions.create(
                 model=self.command_parser.model,
                 messages=[
@@ -536,35 +537,72 @@ Return ONLY valid JSON (no markdown, no explanation):
                 ],
                 max_tokens=500,
                 temperature=0.8,  # More creative
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
+                timeout=10.0  # 10 second timeout
             )
+            llm_time = time.time() - llm_start
+            print(f"[Dance] LLM generation: {llm_time:.1f}s")
             
             result = json.loads(response.choices[0].message.content)
             
             # Validate structure
             if "duration" not in result or "keyframes" not in result:
-                raise ValueError("Invalid JSON structure")
+                raise ValueError("Invalid JSON structure - missing duration or keyframes")
+            
+            if not isinstance(result["keyframes"], list):
+                raise ValueError("Keyframes must be a list")
             
             if len(result["keyframes"]) < 3:
-                raise ValueError("Too few keyframes")
+                raise ValueError(f"Too few keyframes: {len(result['keyframes'])} (need at least 3)")
             
+            if len(result["keyframes"]) > 20:
+                # Trim to 20 keyframes max
+                result["keyframes"] = result["keyframes"][:20]
+                print(f"[Dance] Trimmed keyframes to 20")
+            
+            # Validate each keyframe
+            valid_poses = {'IDLE', 'ARMS_UP', 'ARMS_WAVE_LEFT', 'ARMS_WAVE_RIGHT', 
+                          'SPIN_LEFT', 'SPIN_RIGHT', 'KICK_LEFT', 'KICK_RIGHT', 'JUMP', 'BOW'}
+            
+            for i, kf in enumerate(result["keyframes"]):
+                if "time" not in kf or "pose" not in kf:
+                    raise ValueError(f"Keyframe {i} missing time or pose")
+                
+                if kf["pose"] not in valid_poses:
+                    print(f"[Dance] Warning: Invalid pose '{kf['pose']}' at keyframe {i}, replacing with IDLE")
+                    kf["pose"] = "IDLE"
+            
+            # Sort keyframes by time
+            result["keyframes"] = sorted(result["keyframes"], key=lambda k: k["time"])
+            
+            print(f"[Dance] Valid plan: {len(result['keyframes'])} keyframes, {result['duration']}s")
             return result
             
+        except json.JSONDecodeError as e:
+            print(f"[Dance] LLM JSON parse error: {e}")
+            print(f"[Dance] Response content: {response.choices[0].message.content if 'response' in locals() else 'N/A'}")
+            return self._get_fallback_dance()
         except Exception as e:
             print(f"[Dance] LLM generation failed: {e}")
-            # Fallback: simple dance
-            return {
-                "duration": 12.0,
-                "keyframes": [
-                    {"time": 0.0, "pose": "IDLE"},
-                    {"time": 2.0, "pose": "ARMS_UP"},
-                    {"time": 4.0, "pose": "ARMS_WAVE_LEFT"},
-                    {"time": 6.0, "pose": "ARMS_WAVE_RIGHT"},
-                    {"time": 8.0, "pose": "SPIN_LEFT"},
-                    {"time": 10.0, "pose": "BOW"},
-                    {"time": 12.0, "pose": "IDLE"}
-                ]
-            }
+            import traceback
+            traceback.print_exc()
+            return self._get_fallback_dance()
+    
+    def _get_fallback_dance(self) -> Dict[str, Any]:
+        """Fallback dance plan when LLM fails."""
+        print("[Dance] Using fallback dance plan")
+        return {
+            "duration": 12.0,
+            "keyframes": [
+                {"time": 0.0, "pose": "IDLE"},
+                {"time": 2.0, "pose": "ARMS_UP"},
+                {"time": 4.0, "pose": "ARMS_WAVE_LEFT"},
+                {"time": 6.0, "pose": "ARMS_WAVE_RIGHT"},
+                {"time": 8.0, "pose": "SPIN_LEFT"},
+                {"time": 10.0, "pose": "BOW"},
+                {"time": 12.0, "pose": "IDLE"}
+            ]
+        }
     
     def _cleanup_dance_state(self, conn_id: int) -> None:
         """Clean up dance recording state."""
