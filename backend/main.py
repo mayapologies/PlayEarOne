@@ -130,6 +130,17 @@ async def boxing():
     return {"error": "Boxing not found"}
 
 
+# Serve Head Soccer game
+headsoccer_path = os.path.join(os.path.dirname(__file__), "..", "headsoccer")
+
+
+@app.get("/headsoccer")
+async def headsoccer():
+    """Serve the Head Soccer game."""
+    index_path = os.path.join(headsoccer_path, "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    return {"error": "Head Soccer not found"}
 # Serve Dance game
 dance_path = os.path.join(os.path.dirname(__file__), "..", "dance")
 
@@ -144,6 +155,8 @@ async def dance():
 
 
 # Mount static files (must be after all route definitions)
+if os.path.exists(headsoccer_path):
+    app.mount("/headsoccer-static", StaticFiles(directory=headsoccer_path), name="headsoccer")
 if os.path.exists(boxing_path):
     app.mount("/boxing-static", StaticFiles(directory=boxing_path), name="boxing")
 if os.path.exists(pong_path):
