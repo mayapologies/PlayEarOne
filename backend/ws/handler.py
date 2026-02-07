@@ -256,7 +256,7 @@ class WebSocketHandler:
     async def _process_audio_chunk(self, websocket: WebSocket, buffer: AudioBuffer) -> None:
         """Process accumulated audio for command detection."""
         # Get audio from buffer
-        audio = buffer.consume(0.75)
+        audio = buffer.consume(0.5)
         if audio is None:
             return
 

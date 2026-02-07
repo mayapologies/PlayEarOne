@@ -18,8 +18,8 @@ CHANNELS = 1
 CHUNK_DURATION_MS = 500
 
 # Speaker identification (using Resemblyzer - fast local)
-SPEAKER_SIMILARITY_THRESHOLD = 0.50  # Threshold for speaker matching
-SPEAKER_GAME_THRESHOLD = 0.50  # Lower threshold for active game players
+SPEAKER_SIMILARITY_THRESHOLD = 0.40  # Threshold for speaker matching
+SPEAKER_GAME_THRESHOLD = 0.40  # Lower threshold for active game players
 ENROLLMENT_DURATION_SECONDS = 5
 
 # Paths
