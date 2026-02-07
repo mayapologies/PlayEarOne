@@ -1,7 +1,9 @@
 class AudioManager {
     constructor() {
         this.audioCtx = null;
-        this.assetPath = "../res/audio/"; // Verify this matches your folder exactly
+        const base = window.__basePath || "";
+        this.assetPath = base + "res/audio/"; 
+        console.log("Audio Engine: Assets will be loaded from: ", this.assetPath);
         this.banks = {
             paddle_hits: [],
             wall_bounces: [],
@@ -35,7 +37,7 @@ class AudioManager {
 
     async loadAssets() {
         try {
-            // Use Promise.all to load everything in parallel (faster)
+            console.log("Audio Engine: Starting to load sounds from:", this.assetPath);
             const loads = [
                 this.loadSound("ping1.wav").then(s => this.banks.paddle_hits.push(s)),
                 this.loadSound("ping2.wav").then(s => this.banks.paddle_hits.push(s)),
@@ -50,9 +52,10 @@ class AudioManager {
 
             await Promise.all(loads);
             this.isLoaded = true;
-            console.log("Audio Engine: All assets loaded and ready!");
+            console.log("Audio Engine: Success! All banks populated.");
         } catch (e) {
-            console.error("Audio Engine Error:", e);
+            console.error("Audio Engine Load Error: ", e.message);
+            console.error("Check if the files exist in: ", this.assetPath);
         }
     }
 
