@@ -56,6 +56,7 @@ class WebSocketHandler:
         self.dance_recording: Dict[int, bool] = {}
         self.dance_buffers: Dict[int, list] = {}
         self.dance_start_time: Dict[int, float] = {}
+        self.dance_cooldown: Dict[int, float] = {}  # Ignore audio processing briefly after dance
         self.dance_expected_duration = 30.0  # seconds
 
     async def handle_connection(self, websocket: WebSocket) -> None:
@@ -141,6 +142,12 @@ class WebSocketHandler:
         elif msg_type == "start_dance":
             # Initialize dance recording
             conn_id = id(websocket)
+            
+            # Clear cooldown and buffers to start fresh
+            self.dance_cooldown.pop(conn_id, None)
+            if conn_id in self.buffers:
+                self.buffers[conn_id] = AudioBuffer()
+            
             self.dance_recording[conn_id] = True
             self.dance_buffers[conn_id] = []
             self.dance_start_time[conn_id] = time.time()
@@ -213,6 +220,18 @@ class WebSocketHandler:
         # Process live audio when we have enough
         buffer = self.buffers.get(conn_id)
         if buffer and buffer.duration_seconds() >= 1.5:
+            # Check if we're in cooldown period after dance generation
+            cooldown_until = self.dance_cooldown.get(conn_id, 0)
+            if time.time() < cooldown_until:
+                # Clear buffer but don't process to avoid spurious errors/commands
+                buffer.consume(1.5)
+                return
+            
+            # Don't process if actively recording dance
+            if self.dance_recording.get(conn_id, False):
+                buffer.consume(1.5)
+                return
+                
             await self._process_audio_chunk(websocket, buffer)
 
     async def _process_audio_chunk(self, websocket: WebSocket, buffer: AudioBuffer) -> None:
@@ -481,7 +500,7 @@ class WebSocketHandler:
             transcript_time = time.time() - transcript_start
             print(f"[Dance] Transcription complete: {transcript_time:.1f}s → '{transcript[:100]}...'")
             
-            if not transcript or len(transcript.strip()) < 10:
+            if not transcript or len(transcript.strip()) < 3:
                 print(f"[Dance] ✗ Transcript too short or empty")
                 await self._send_message(websocket, {
                     "type": "dance_error",
@@ -512,6 +531,12 @@ class WebSocketHandler:
                 "transcript": transcript
             })
             
+            # Set cooldown to prevent processing spurious audio during animation
+            # Cooldown = dance duration + 2 second buffer for UI interaction
+            cooldown_duration = dance_plan.get('duration', 10.0) + 2.0
+            self.dance_cooldown[conn_id] = time.time() + cooldown_duration
+            print(f"[Dance] Set audio processing cooldown for {cooldown_duration:.1f}s")
+            
             total_time = time.time() - transcript_start
             print(f"[Dance] ✓ Complete pipeline: {total_time:.2f}s (transcribe: {transcript_time:.2f}s, LLM: {llm_time:.2f}s)")
             print(f"[Dance] ========== DANCE PROCESSING COMPLETE ==========\n")
@@ -530,39 +555,103 @@ class WebSocketHandler:
     async def _generate_dance_plan(self, transcript: str) -> Dict[str, Any]:
         """Use LLM to convert transcript to structured dance plan."""
         
-        print(f"[Dance LLM] Preparing prompt for choreography...")
-        prompt = f"""You are a creative dance choreographer. Convert the user's description into a structured dance sequence for a stick figure character.
+        print(f"\n[Dance LLM] ========== GENERATING CHOREOGRAPHY ==========\n")
+        prompt = f"""You are a creative dance choreographer for a 2D stick figure. The dancer is FACING THE VIEWER/CAMERA at all times. NO full-body rotation/spins - use shoulder/hip offsets instead.
 
-Available poses (angles in degrees):
-- IDLE: Standing neutral
-- ARMS_UP: Both arms raised overhead (90°)
-- ARMS_WAVE_LEFT: Left arm up (90°), right arm down (0°)
-- ARMS_WAVE_RIGHT: Right arm up (90°), left arm down (0°)
-- SPIN_LEFT: Body rotates left (-45°)
-- SPIN_RIGHT: Body rotates right (45°)
-- KICK_LEFT: Left leg extended (90°)
-- KICK_RIGHT: Right leg extended (90°)
-- JUMP: Both legs bent, body elevated
-- BOW: Body bent forward (-45°)
+PERSPECTIVE: Dancer faces viewer, so:
+- Left arm/leg = viewer's RIGHT side of screen
+- Right arm/leg = viewer's LEFT side of screen
+- Forward lean = toward viewer (waist/body negative angles)
+- Backward lean = away from viewer (waist/body positive angles)
+- Hip angles: positive = leg forward toward viewer, negative = leg back away from viewer
+
+You can use predefined poses OR specify custom joint angles for any pose.
+
+Predefined poses (all have leg movements built-in):
+- IDLE, ARMS_UP, ARMS_WAVE_LEFT, ARMS_WAVE_RIGHT, SPIN_LEFT, SPIN_RIGHT, KICK_LEFT, KICK_RIGHT, JUMP, BOW, FLOSS_LEFT, FLOSS_RIGHT, DAB, TUBE_WAVE, HIGH_KNEE_LEFT, HIGH_KNEE_RIGHT
+
+Custom angles (REQUIRED constraints in degrees):
+- waist: -45 to 45 (torso tilt, limited for stability)
+- body: -60 to 60 (upper body lean)
+- lShoulder/rShoulder: -150 to 150 (arm angle)
+- lElbow/rElbow: -150 to 150 (forearm angle)
+- lHip/rHip: -60 to 120 (leg angle, no back-kicks)
+- lKnee/rKnee: -150 to 0 (knee bend only)
+- jumpOffset: -80 to 0 (vertical displacement)
+- torsoScaleY: 0.85 to 1.15 (squash/stretch for impact, optional)
+- footTargetY: -10 to 0 (IK grounding hint, optional)
+
+DEFAULT STANDING POSITION (baseline for all movements):
+- Arms: DOWN and OUT to sides so they're visible (lShoulder: 20-30°, rShoulder: -20 to -30°, elbows slightly bent -10 to -20°)
+- Legs: STRAIGHT upside-down V from hips (lHip: 10-15°, rHip: -10 to -15°, knees straight 0° to -5° for natural look)
+- Hip to foot should be STRAIGHT LINES - minimal knee bend in default stance
+- NEVER use 0° for arms/hips - always offset from center for visible, natural standing pose
+- All movements start from and return to this visible, spread-leg V-stance
+
+Easing per keyframe (choose appropriate):
+- "cubic" (default): Smooth, natural
+- "linear": Sharp, robotic
+- "bounce": Impact, landing feel
+
+CRITICAL FULL-BODY MOVEMENT RULES:
+1. EVERY custom pose MUST include ALL limb angles: lShoulder, rShoulder, lElbow, rElbow, lHip, rHip, lKnee, rKnee
+2. START from default standing position (arms out 20-30°, legs in upside-down V with hips 10-15°, knees STRAIGHT 0° to -5°)
+3. BOTH arms MUST move - never leave one arm static at 0° while other moves
+4. BOTH legs MUST move - never leave hips at 0°, always spread in V-shape for standing
+5. Arms and legs MUST change between keyframes - no static limbs
+6. When one arm reaches, other arm balances (opposite angles or support position)
+7. When arms move, legs compensate with weight shifts (bend knees for action, but default stance has straight legs)
+8. Example GOOD standing pose (V-stance, straight legs): {{"lShoulder": 25, "rShoulder": -25, "lElbow": -15, "rElbow": -15, "lHip": 12, "lKnee": 0, "rHip": -12, "rKnee": 0}}
+9. Example GOOD action pose (bent knees for movement): {{"lShoulder": 90, "rShoulder": -30, "lElbow": -45, "rElbow": 20, "lHip": 15, "lKnee": -20, "rHip": 25, "rKnee": -30}}
+10. Example BAD pose (limbs at 0°): {{"lShoulder": 90, "rShoulder": 0, "lHip": 0, "rHip": 0}} ❌ INVALID - arms/legs not visible!
+11. Example BAD pose (missing angles): {{"lShoulder": 90, "rShoulder": -30}} ❌ INVALID - WHERE ARE ELBOWS AND LEGS?
+
+Famous Dance Mimicry (NO rotation parameter - use limb offsets):
+When a well-known dance is mentioned, reproduce its signature moves precisely WITH FULL BODY COORDINATION (all 8 limb angles):
+- "robot dance": 90° snaps with "linear" easing, stiff movements. BOTH arms at 90° angles alternating positions (lShoulder 90°/0°, rShoulder 0°/90°, elbows ±90°), BOTH legs with alternating stances (lHip/rHip ±10-20°, knees -20 to -40°)
+- "chicken dance": exact sequence - (1) BOTH arms flap together 4x (shoulders ±45°, elbows bent -60°) WITH synchronized knee bounces (both knees -20 to -40°), (2) deep squats (knees -90°, arms at sides), (3) BOTH arms clap 4x (shoulders forward 30°, elbows -90°) WITH weight shifts, (4) spin via shoulder offsets WITH knee bends
+- "matrix bullet dodge": lean via waist -45°, body -40°, BOTH arms extended backward symmetrically (shoulders -60°, elbows -20°), hold 3s, BOTH knees bent (-45°) for stability
+- "moonwalk": hip slides (-10° to 20°) with footTargetY hints, body lean 15°, ALTERNATE leg lifts (one hip 60°, other 10°), BOTH arms swing naturally opposite to legs (shoulders ±20-40°, elbows -10 to -30°)
+- "floss": hips ±30° FIRST (priority!), BOTH arms swing together ±90° with overlap, elbows slightly bent (-20°), 0.6s per swing, BOTH knees BEND with each swing (-30 to -50°)
+- "dab": left arm bent up (lShoulder 120°, lElbow -90°), right arm extended down (rShoulder -45°, rElbow -10°), asymmetric leg stance (lHip 8°, lKnee -15°, rHip 5°, rKnee -12°)
+- "disco": John Travolta - one arm points up-right/down-left (shoulder 120° or -45°, elbow varying), OTHER arm at hip for balance (shoulder 20°, elbow -60°), hip sways WITH LEG SHIFTS (standing leg knee -25°, other leg varies)
+- "running man": alternating high knees (one hip 90°, knee 0° / other hip 10°, knee -40°), BOTH arms pump opposite to legs (forward arm shoulder 60°/elbow -30°, back arm shoulder -40°/elbow -20°), 0.4s per step
+- "Carlton dance": BOTH shoulders shimmy together ±20°, BOTH elbows bent (-60° to -80°), arms swing side to side in sync, BOTH KNEE BOUNCES synchronized (-15° to -35° oscillating)
 
 User description: "{transcript}"
 
-Create a dance sequence with 8-15 keyframes that matches the description. Space keyframes 1-2 seconds apart for smooth motion. Be creative and match the user's description closely.
+IMPORTANT:
+1. 8-15 keyframes, 0.8-2s spacing (vary timing)
+2. Use appropriate easing for each keyframe
+3. Apply anticipation before big moves
+4. MANDATORY: ALL custom poses MUST specify ALL 8 limb angles (lShoulder, rShoulder, lElbow, rElbow, lHip, rHip, lKnee, rKnee)
+5. START and END with visible V-stance (arms out, legs spread in upside-down V, knees STRAIGHT 0° to -5°)
+6. BOTH arms must be active - if one arm is raised, other arm provides balance
+7. NO rotation parameter - offset limbs for spins
+8. Stay within joint constraints
+9. For famous dances: INCLUDE the specific leg AND arm choreography described above
+10. For original dances: Both arms move in coordination, knee bends during ACTION (-20° minimum), but return to straight-leg V-stance when idle
 
 Explain your choreography choices in 1-2 sentences.
 
 Return ONLY valid JSON (no markdown, no explanation):
 {{
-  "reasoning": "I interpreted this as... so I chose...",
-  "duration": 12.0,
+  "reasoning": "...",
+  "duration": 10.0,
   "keyframes": [
-    {{"time": 0.0, "pose": "IDLE"}},
-    {{"time": 2.0, "pose": "ARMS_UP"}},
-    {{"time": 4.0, "pose": "SPIN_LEFT"}},
+    {{"time": 0.0, "pose": "IDLE", "easing": "cubic"}},
+    {{"time": 0.8, "pose": {{"lShoulder": 45, "rShoulder": -20, "lElbow": -30, "rElbow": 15, "lHip": 20, "lKnee": -30, "rHip": 15, "rKnee": -25, "torsoScaleY": 0.95}}, "easing": "bounce"}},
     ...
   ]
 }}"""
 
+        # Log the full prompt
+        print(f"[Dance LLM] 📝 FULL PROMPT TO AI:")
+        print(f"[Dance LLM] {'='*60}")
+        for line in prompt.split('\n'):
+            print(f"[Dance LLM] {line}")
+        print(f"[Dance LLM] {'='*60}\n")
+        
         print(f"[Dance LLM] Preparing to call OpenRouter API...")
         print(f"[Dance LLM] Transcript: '{transcript[:100]}..." if len(transcript) > 100 else transcript + "'")
         
@@ -575,10 +664,10 @@ Return ONLY valid JSON (no markdown, no explanation):
                     {"role": "system", "content": "You are a dance choreographer. Output only valid JSON."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=500,
+                max_tokens=4000,
                 temperature=0.8,  # More creative
                 response_format={"type": "json_object"},
-                timeout=10.0  # 10 second timeout
+                timeout=15.0  # 15 second timeout
             )
             llm_time = time.time() - llm_start
             print(f"[Dance LLM] ✓ Response received in {llm_time:.2f}s")
@@ -615,6 +704,8 @@ Return ONLY valid JSON (no markdown, no explanation):
             print(f"[Dance LLM] Validating individual keyframes...")
             valid_poses = {'IDLE', 'ARMS_UP', 'ARMS_WAVE_LEFT', 'ARMS_WAVE_RIGHT', 
                           'SPIN_LEFT', 'SPIN_RIGHT', 'KICK_LEFT', 'KICK_RIGHT', 'JUMP', 'BOW'}
+            valid_angle_keys = {'waist', 'body', 'lShoulder', 'rShoulder', 'lElbow', 'rElbow',
+                               'lHip', 'rHip', 'lKnee', 'rKnee', 'rotation', 'jumpOffset'}
             
             fixed_count = 0
             for i, kf in enumerate(result["keyframes"]):
@@ -622,8 +713,18 @@ Return ONLY valid JSON (no markdown, no explanation):
                     print(f"[Dance LLM] ✗ Keyframe {i} missing time or pose")
                     raise ValueError(f"Keyframe {i} missing time or pose")
                 
-                if kf["pose"] not in valid_poses:
-                    print(f"[Dance LLM] ⚠ Invalid pose '{kf['pose']}' at keyframe {i} (time: {kf['time']}s), replacing with IDLE")
+                # Allow pose to be either a string or an object with angles
+                pose_value = kf["pose"]
+                if isinstance(pose_value, dict):
+                    # Validate angle object keys
+                    for key in list(pose_value.keys()):
+                        if key not in valid_angle_keys:
+                            print(f"[Dance LLM] ⚠ Keyframe {i} has invalid angle key: {key}")
+                            del pose_value[key]
+                            fixed_count += 1
+                elif pose_value not in valid_poses:
+                    # Validate string pose name
+                    print(f"[Dance LLM] ⚠ Invalid pose '{pose_value}' at keyframe {i} (time: {kf['time']}s), replacing with IDLE")
                     kf["pose"] = "IDLE"
                     fixed_count += 1
             
@@ -643,24 +744,61 @@ Return ONLY valid JSON (no markdown, no explanation):
             
             result["duration"] = calculated_duration
             
-            # Log reasoning if provided
+            # Log AI's thinking/reasoning prominently
+            print(f"\n[Dance LLM] {'='*60}")
+            print(f"[Dance LLM] 🧠 AI CHOREOGRAPHER'S THINKING:")
+            print(f"[Dance LLM] {'='*60}")
             if "reasoning" in result:
-                print(f"[Dance LLM] 💭 Choreography Reasoning:")
-                print(f"[Dance LLM]    {result['reasoning']}")
+                print(f"[Dance LLM] {result['reasoning']}")
+            else:
+                print(f"[Dance LLM] (No reasoning provided)")
+            print(f"[Dance LLM] {'='*60}\n")
             
             print(f"[Dance LLM] ✓ Validation complete")
-            print(f"[Dance LLM] Final plan: {len(result['keyframes'])} keyframes over {result['duration']}s")
-            for i, kf in enumerate(result["keyframes"][:5]):  # Show first 5
-                print(f"[Dance LLM]   {i+1}. {kf['time']:.1f}s - {kf['pose']}")
-            if len(result["keyframes"]) > 5:
-                print(f"[Dance LLM]   ... and {len(result['keyframes']) - 5} more")
+            print(f"\n[Dance LLM] {'='*60}")
+            print(f"[Dance LLM] 🎭 GENERATED DANCE SEQUENCE:")
+            print(f"[Dance LLM] {'='*60}")
+            print(f"[Dance LLM] Duration: {result['duration']:.1f}s ({len(result['keyframes'])} keyframes)\n")
+            
+            # Log all keyframes with details
+            for i, kf in enumerate(result["keyframes"]):
+                pose_desc = kf["pose"]
+                easing = kf.get("easing", "cubic")
+                
+                if isinstance(pose_desc, dict):
+                    # Custom angles - show key movements
+                    angles = []
+                    if "lShoulder" in pose_desc or "rShoulder" in pose_desc:
+                        angles.append(f"arms: L{pose_desc.get('lShoulder', 0)}° R{pose_desc.get('rShoulder', 0)}°")
+                    if "lHip" in pose_desc or "rHip" in pose_desc:
+                        angles.append(f"legs: L{pose_desc.get('lHip', 0)}° R{pose_desc.get('rHip', 0)}°")
+                    if "waist" in pose_desc:
+                        angles.append(f"waist: {pose_desc.get('waist')}°")
+                    if "jumpOffset" in pose_desc and pose_desc["jumpOffset"] != 0:
+                        angles.append(f"jump: {pose_desc['jumpOffset']}")
+                    if "torsoScaleY" in pose_desc:
+                        angles.append(f"squash/stretch: {pose_desc['torsoScaleY']}x")
+                    if "footTargetY" in pose_desc:
+                        angles.append(f"footIK: {pose_desc['footTargetY']}")
+                    
+                    pose_str = "Custom (" + ", ".join(angles) + ")" if angles else "Custom pose"
+                else:
+                    pose_str = pose_desc
+                
+                print(f"[Dance LLM] {i+1:2d}. {kf['time']:5.1f}s → {pose_str:<50s} [{easing}]")
+            
+            print(f"[Dance LLM] {'='*60}\n")
             
             return result
             
         except json.JSONDecodeError as e:
             print(f"[Dance LLM] ✗ JSON parse error: {e}")
-            if 'response' in locals():
-                print(f"[Dance LLM] Response content: {response.choices[0].message.content[:200]}...")
+            if 'response_content' in locals():
+                print(f"\n[Dance LLM] {'='*60}")
+                print(f"[Dance LLM] 📄 FULL RESPONSE FROM AI:")
+                print(f"[Dance LLM] {'='*60}")
+                print(response_content)
+                print(f"[Dance LLM] {'='*60}\n")
             print(f"[Dance LLM] Falling back to default dance")
             return self._get_fallback_dance()
         except Exception as e:
@@ -691,3 +829,4 @@ Return ONLY valid JSON (no markdown, no explanation):
         self.dance_recording.pop(conn_id, None)
         self.dance_buffers.pop(conn_id, None)
         self.dance_start_time.pop(conn_id, None)
+        self.dance_cooldown.pop(conn_id, None)

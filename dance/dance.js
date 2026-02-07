@@ -621,7 +621,10 @@ class DanceManager {
         
         const frameDuration = nextFrame.time - prevFrame.time;
         const t = (time - prevFrame.time) / frameDuration;
-        const easedT = this.easeInOutCubic(t);
+        
+        // Use per-keyframe easing (from nextFrame, as it defines transition to that frame)
+        const easingType = nextFrame.easing || 'cubic';
+        const easedT = this.applyEasing(t, easingType);
         
         const prevAngles = this.getPoseAngles(prevFrame.pose);
         const nextAngles = this.getPoseAngles(nextFrame.pose);
@@ -674,72 +677,104 @@ class DanceManager {
         this.ctx.restore();
     }
     
-    getPoseAngles(poseName) {
+    getPoseAngles(poseNameOrAngles) {
+        // If pose is already an object with angles, return it with defaults
+        if (typeof poseNameOrAngles === 'object') {
+            return {
+                waist: 0, body: 0,
+                lShoulder: 0, lElbow: 0, rShoulder: 0, rElbow: 0,
+                lHip: 0, lKnee: 0, rHip: 0, rKnee: 0,
+                rotation: 0, jumpOffset: 0,
+                ...poseNameOrAngles
+            };
+        }
+        
         const POSE_LIBRARY = {
             IDLE: { 
                 waist: 0, body: 0,
                 lShoulder: 10, lElbow: 0, rShoulder: -10, rElbow: 0,
-                lHip: 0, lKnee: 0, rHip: 0, rKnee: 0,
-                rotation: 0
+                lHip: 0, lKnee: 0, rHip: 0, rKnee: 0
             },
             ARMS_UP: { 
-                waist: 0, body: 0,
+                waist: 5, body: -5,
                 lShoulder: 90, lElbow: 0, rShoulder: 90, rElbow: 0,
-                lHip: 0, lKnee: 0, rHip: 0, rKnee: 0,
-                rotation: 0
+                lHip: 10, lKnee: -15, rHip: 10, rKnee: -15
             },
             ARMS_WAVE_LEFT: { 
-                waist: 0, body: 0,
+                waist: -10, body: 5,
                 lShoulder: 90, lElbow: -30, rShoulder: -20, rElbow: 0,
-                lHip: 0, lKnee: 0, rHip: 0, rKnee: 0,
-                rotation: 0
+                lHip: 15, lKnee: -20, rHip: 25, rKnee: -10
             },
             ARMS_WAVE_RIGHT: { 
-                waist: 0, body: 0,
+                waist: 10, body: 5,
                 lShoulder: -20, lElbow: 0, rShoulder: 90, rElbow: -30,
-                lHip: 0, lKnee: 0, rHip: 0, rKnee: 0,
-                rotation: 0
+                lHip: 25, lKnee: -10, rHip: 15, rKnee: -20
             },
             SPIN_LEFT: { 
                 waist: 0, body: 0,
                 lShoulder: 45, lElbow: -20, rShoulder: 45, rElbow: -20,
-                lHip: 0, lKnee: 5, rHip: 0, rKnee: 5,
-                rotation: -180
+                lHip: 20, lKnee: -30, rHip: 15, rKnee: -25
             },
             SPIN_RIGHT: { 
                 waist: 0, body: 0,
                 lShoulder: 45, lElbow: -20, rShoulder: 45, rElbow: -20,
-                lHip: 0, lKnee: 5, rHip: 0, rKnee: 5,
-                rotation: 180
+                lHip: 15, lKnee: -25, rHip: 20, rKnee: -30
             },
             KICK_LEFT: { 
                 waist: 10, body: -10,
                 lShoulder: -30, lElbow: 10, rShoulder: -30, rElbow: 10,
-                lHip: 90, lKnee: -20, rHip: 0, rKnee: 0,
-                rotation: 0
+                lHip: 90, lKnee: -20, rHip: 0, rKnee: 0
             },
             KICK_RIGHT: { 
                 waist: 10, body: -10,
                 lShoulder: -30, lElbow: 10, rShoulder: -30, rElbow: 10,
-                lHip: 0, lKnee: 0, rHip: 90, rKnee: -20,
-                rotation: 0
+                lHip: 0, lKnee: 0, rHip: 90, rKnee: -20
             },
             JUMP: { 
-                waist: -10, body: 0,
-                lShoulder: 60, lElbow: -30, rShoulder: 60, rElbow: -30,
-                lHip: 45, lKnee: -90, rHip: 45, rKnee: -90,
-                rotation: 0,
-                jumpOffset: -50
+                waist: 10, body: -15,
+                lShoulder: -20, lElbow: 20, rShoulder: -20, rElbow: 20,
+                lHip: 60, lKnee: -100, rHip: 60, rKnee: -100,
+                jumpOffset: -40,
+                torsoScaleY: 0.9
             },
             BOW: { 
                 waist: -45, body: -30,
                 lShoulder: -20, lElbow: 0, rShoulder: -20, rElbow: 0,
-                lHip: 10, lKnee: 5, rHip: 10, rKnee: 5,
-                rotation: 0
+                lHip: 15, lKnee: -20, rHip: 15, rKnee: -20
+            },
+            FLOSS_LEFT: {
+                waist: 30, body: 0,
+                lShoulder: 90, lElbow: 0, rShoulder: -90, rElbow: 0,
+                lHip: 20, lKnee: -15, rHip: 10, rKnee: -10
+            },
+            FLOSS_RIGHT: {
+                waist: -30, body: 0,
+                lShoulder: -90, lElbow: 0, rShoulder: 90, rElbow: 0,
+                lHip: 10, lKnee: -10, rHip: 20, rKnee: -15
+            },
+            DAB: {
+                waist: 0, body: 10,
+                lShoulder: 45, lElbow: -90, rShoulder: -45, rElbow: 0,
+                lHip: 5, lKnee: -10, rHip: 5, rKnee: -10
+            },
+            TUBE_WAVE: {
+                waist: 0, body: -15,
+                lShoulder: 45, lElbow: -30, rShoulder: -45, rElbow: 30,
+                lHip: 10, lKnee: -15, rHip: 10, rKnee: -15
+            },
+            HIGH_KNEE_LEFT: {
+                waist: 5, body: -5,
+                lShoulder: -45, lElbow: -45, rShoulder: 45, rElbow: 45,
+                lHip: 90, lKnee: -10, rHip: 0, rKnee: -15
+            },
+            HIGH_KNEE_RIGHT: {
+                waist: 5, body: -5,
+                lShoulder: 45, lElbow: 45, rShoulder: -45, rElbow: -45,
+                lHip: 0, lKnee: -15, rHip: 90, rKnee: -10
             }
         };
         
-        return POSE_LIBRARY[poseName] || POSE_LIBRARY.IDLE;
+        return POSE_LIBRARY[poseNameOrAngles] || POSE_LIBRARY.IDLE;
     }
     
     interpolatePoses(pose1, pose2, t) {
@@ -756,33 +791,52 @@ class DanceManager {
             lKnee: lerp(pose1.lKnee || 0, pose2.lKnee || 0, t),
             rHip: lerp(pose1.rHip || 0, pose2.rHip || 0, t),
             rKnee: lerp(pose1.rKnee || 0, pose2.rKnee || 0, t),
-            rotation: lerp(pose1.rotation || 0, pose2.rotation || 0, t),
-            jumpOffset: lerp(pose1.jumpOffset || 0, pose2.jumpOffset || 0, t)
+            jumpOffset: lerp(pose1.jumpOffset || 0, pose2.jumpOffset || 0, t),
+            torsoScaleY: lerp(pose1.torsoScaleY || 1.0, pose2.torsoScaleY || 1.0, t),
+            footTargetY: lerp(pose1.footTargetY || 0, pose2.footTargetY || 0, t)
         };
     }
     
-    easeInOutCubic(t) {
-        return t < 0.5
-            ? 4 * t * t * t
-            : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    applyEasing(t, easingType) {
+        switch(easingType) {
+            case 'linear':
+                return t;
+            case 'bounce':
+                // Quad bounce: simulate impact
+                return t < 0.5 ? 2 * t * t : 1 - 2 * (1 - t) * (1 - t);
+            case 'cubic':
+            default:
+                // Cubic in-out (existing)
+                return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        }
     }
     
     drawStickFigure(pose) {
         const ctx = this.ctx;
         const centerX = this.canvas.width / 2;
-        const centerY = this.canvas.height / 2 + (pose.jumpOffset || 0);
+        const centerY = this.canvas.height * 0.7 + (pose.jumpOffset || 0);  // Lower position (70% down from top)
         
         const headRadius = 30;
-        const upperBodyLength = 50;
-        const lowerBodyLength = 50;
+        const upperBodyLength = 50 * (pose.torsoScaleY || 1.0);  // Apply squash/stretch
+        const lowerBodyLength = 50 * (pose.torsoScaleY || 1.0);  // Apply squash/stretch
         const upperArmLength = 35;
         const forearmLength = 35;
         const thighLength = 45;
         const shinLength = 45;
         
+        // Apply simple IK if footTargetY is provided
+        let adjustedPose = {...pose};
+        if (pose.footTargetY !== undefined && pose.footTargetY !== 0) {
+            const targetDist = Math.abs(pose.footTargetY);
+            const hipLength = thighLength + shinLength;
+            const kneeAdjust = Math.atan2(targetDist, hipLength) * (180 / Math.PI);
+            adjustedPose.lKnee = Math.max(-150, (pose.lKnee || 0) - kneeAdjust);
+            adjustedPose.rKnee = Math.max(-150, (pose.rKnee || 0) - kneeAdjust);
+        }
+        
         ctx.save();
         ctx.translate(centerX, centerY);
-        ctx.rotate(pose.rotation * Math.PI / 180);
+        // NO rotation applied - removed for stability
         
         // Draw style with glow
         ctx.lineWidth = 8;
@@ -793,7 +847,7 @@ class DanceManager {
         ctx.shadowBlur = 20;
         
         // Waist (lower body base)
-        const waistRad = pose.waist * Math.PI / 180;
+        const waistRad = adjustedPose.waist * Math.PI / 180;
         const waistX = lowerBodyLength * Math.sin(waistRad);
         const waistY = -lowerBodyLength * Math.cos(waistRad);
         
@@ -804,7 +858,7 @@ class DanceManager {
         ctx.stroke();
         
         // Upper body from waist
-        const bodyRad = (pose.body + pose.waist) * Math.PI / 180;
+        const bodyRad = (adjustedPose.body + adjustedPose.waist) * Math.PI / 180;
         const shoulderX = waistX + upperBodyLength * Math.sin(bodyRad);
         const shoulderY = waistY - upperBodyLength * Math.cos(bodyRad);
         
@@ -828,7 +882,7 @@ class DanceManager {
         ctx.fill();
         
         // LEFT ARM
-        const lShoulderRad = (pose.lShoulder + pose.body + pose.waist) * Math.PI / 180;
+        const lShoulderRad = (adjustedPose.lShoulder + adjustedPose.body + adjustedPose.waist) * Math.PI / 180;
         const lElbowX = shoulderX - upperArmLength * Math.sin(lShoulderRad);
         const lElbowY = shoulderY - upperArmLength * Math.cos(lShoulderRad);
         
@@ -846,7 +900,7 @@ class DanceManager {
         ctx.fill();
         
         // Forearm
-        const lForearmRad = (pose.lShoulder + pose.lElbow + pose.body + pose.waist) * Math.PI / 180;
+        const lForearmRad = (adjustedPose.lShoulder + adjustedPose.lElbow + adjustedPose.body + adjustedPose.waist) * Math.PI / 180;
         const lHandX = lElbowX - forearmLength * Math.sin(lForearmRad);
         const lHandY = lElbowY - forearmLength * Math.cos(lForearmRad);
         
@@ -857,7 +911,7 @@ class DanceManager {
         ctx.stroke();
         
         // RIGHT ARM
-        const rShoulderRad = (pose.rShoulder + pose.body + pose.waist) * Math.PI / 180;
+        const rShoulderRad = (adjustedPose.rShoulder + adjustedPose.body + adjustedPose.waist) * Math.PI / 180;
         const rElbowX = shoulderX + upperArmLength * Math.sin(rShoulderRad);
         const rElbowY = shoulderY - upperArmLength * Math.cos(rShoulderRad);
         
@@ -875,7 +929,7 @@ class DanceManager {
         ctx.fill();
         
         // Forearm
-        const rForearmRad = (pose.rShoulder + pose.rElbow + pose.body + pose.waist) * Math.PI / 180;
+        const rForearmRad = (adjustedPose.rShoulder + adjustedPose.rElbow + adjustedPose.body + adjustedPose.waist) * Math.PI / 180;
         const rHandX = rElbowX + forearmLength * Math.sin(rForearmRad);
         const rHandY = rElbowY - forearmLength * Math.cos(rForearmRad);
         
@@ -885,8 +939,8 @@ class DanceManager {
         ctx.lineTo(rHandX, rHandY);
         ctx.stroke();
         
-        // LEFT LEG
-        const lHipRad = pose.lHip * Math.PI / 180;
+        // LEFT LEG (from bottom of body)
+        const lHipRad = adjustedPose.lHip * Math.PI / 180;
         const lKneeX = -thighLength * Math.sin(lHipRad);
         const lKneeY = thighLength * Math.cos(lHipRad);
         
@@ -914,7 +968,7 @@ class DanceManager {
         ctx.lineTo(lFootX, lFootY);
         ctx.stroke();
         
-        // RIGHT LEG
+        // RIGHT LEG (from bottom of body)
         const rHipRad = pose.rHip * Math.PI / 180;
         const rKneeX = thighLength * Math.sin(rHipRad);
         const rKneeY = thighLength * Math.cos(rHipRad);
