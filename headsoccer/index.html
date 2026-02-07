@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Boxing</title>
+  <title>Head Soccer</title>
   <link rel="stylesheet" id="cssLink">
   <script>
-    if (location.pathname === '/boxing') {
-      window.__basePath = '/boxing-static/';
+    if (location.pathname === '/head-soccer') {
+      window.__basePath = '/head-soccer-static/';
     } else {
       window.__basePath = '';
     }
@@ -18,7 +18,7 @@
   <div class="nav-header">
     <a href="/" class="nav-btn">← Enroll Speakers</a>
     <a href="/pong" class="nav-btn">Pong</a>
-    <a href="/headsoccer" class="nav-btn">Head Soccer</a>
+    <a href="/boxing" class="nav-btn">Boxing</a>
   </div>
   <div id="gameWrapper">
     <div class="player-panel" id="player1Panel">
@@ -54,8 +54,8 @@
 
     (async () => {
       const scripts = [
-        'js/constants.js', 'js/keybinds.js', 'js/Fighter.js', 'js/Renderer.js',
-        'js/Input.js', 'js/BoxingVoiceInput.js', 'js/Game.js'
+        'js/constants.js', 'js/keybinds.js', 'js/player.js', 'js/ball.js', 'js/powerup.js',
+        'js/renderer.js', 'js/input.js', 'js/socvoiceinput.js', 'js/game.js'
       ];
       for (const src of scripts) {
         await loadScript(src);
