@@ -216,7 +216,7 @@ class WebSocketHandler:
             volume = 1.0
         
         print(f" -> volume: {volume:.2f}")
-        return min(1.0, max(0.0, volume))
+        return float(min(1.0, max(0.0, volume)))
 
     def _get_speech_duration(self, conn_id: int, speaker: str, is_speaking: bool) -> float:
         """Calculate how long a speaker has been continuously speaking."""
@@ -316,12 +316,12 @@ class WebSocketHandler:
                 return CommandResult(
                     timestamp=datetime.utcnow().isoformat() + "Z",
                     speaker=speaker_match.name,
-                    speaker_confidence=speaker_match.confidence,
+                    speaker_confidence=float(speaker_match.confidence),
                     command=parsed.command,
                     raw_text=parsed.raw_text,
-                    command_confidence=parsed.confidence,
+                    command_confidence=float(parsed.confidence),
                     volume=volume,
-                    speech_duration=speech_duration
+                    speech_duration=float(speech_duration)
                 )
 
             return None
