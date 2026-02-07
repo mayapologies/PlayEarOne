@@ -202,8 +202,10 @@ class BoxingGame {
     // Player 1 keys
     for (const [key, action] of Object.entries(P1_KEYS)) {
       if (action === 'block' || action === 'dodge') {
-        // Block and dodge are hold-based
-        this.handleCommand(1, action, keys[key]);
+        // Block and dodge are hold-based, but skip keyboard if voice is controlling
+        if (!this.voiceInput || !this.voiceInput.isVoiceHoldActive(1, action)) {
+          this.handleCommand(1, action, keys[key]);
+        }
       } else if (keys[key] && !this.keyHandled['p1_' + key]) {
         this.keyHandled['p1_' + key] = true;
         this.handleCommand(1, action);
@@ -215,8 +217,10 @@ class BoxingGame {
     // Player 2 keys
     for (const [key, action] of Object.entries(P2_KEYS)) {
       if (action === 'block' || action === 'dodge') {
-        // Block and dodge are hold-based
-        this.handleCommand(2, action, keys[key]);
+        // Block and dodge are hold-based, but skip keyboard if voice is controlling
+        if (!this.voiceInput || !this.voiceInput.isVoiceHoldActive(2, action)) {
+          this.handleCommand(2, action, keys[key]);
+        }
       } else if (keys[key] && !this.keyHandled['p2_' + key]) {
         this.keyHandled['p2_' + key] = true;
         this.handleCommand(2, action);
@@ -406,7 +410,8 @@ const boxingGame = new BoxingGame();
 window.boxingGame = boxingGame;
 boxingGame.start();
 
-const boxingVoice = new BoxingVoiceInput();
+const boxingVoice = new BoxingVoiceInput(boxingGame);
+boxingGame.voiceInput = boxingVoice;
 boxingVoice.initialize().catch(() => {
   const el = document.getElementById('voiceStatus');
   if (el) {

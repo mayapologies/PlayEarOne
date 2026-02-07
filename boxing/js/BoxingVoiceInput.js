@@ -1,5 +1,6 @@
 class BoxingVoiceInput {
-  constructor() {
+  constructor(game) {
+    this.game = game;
     this.socket = null;
     this.audioContext = null;
     this.mediaStream = null;
@@ -24,6 +25,14 @@ class BoxingVoiceInput {
     this.lastCommand = { 1: null, 2: null };
     this.lastCommandTime = { 1: 0, 2: 0 };
     this.debounceTime = 100;
+    
+    // Voice-triggered hold timers for block/dodge
+    this.voiceHoldTimers = { 1: {}, 2: {} };
+    this.voiceHoldDuration = 1000; // ms to hold block/dodge from voice command
+  }
+
+  isVoiceHoldActive(player, action) {
+    return !!this.voiceHoldTimers[player][action];
   }
 
   async initialize() {
@@ -43,10 +52,21 @@ class BoxingVoiceInput {
   async fetchPlayerAssignments() {
     try {
       const host = location.host || 'localhost:8000';
+      
+      // Fetch enrolled speakers
+      const speakersRes = await fetch(`${location.protocol}//${host}/api/speakers`);
+      const speakersData = await speakersRes.json();
+      const speakers = speakersData.speakers || [];
+      
+      // Fetch current assignments
       const res = await fetch(`${location.protocol}//${host}/api/config`);
       const data = await res.json();
       const assignments = data.player_assignments || {};
 
+      // Populate dropdowns
+      this.populatePlayerDropdowns(speakers, assignments);
+
+      // Update player names display
       for (const [name, playerNum] of Object.entries(assignments)) {
         const el = document.getElementById(`player${playerNum}Name`);
         if (el) {
@@ -56,6 +76,82 @@ class BoxingVoiceInput {
       console.log('[BoxingVoice] assignments:', assignments);
     } catch (e) {
       console.error('[BoxingVoice] failed to fetch assignments:', e);
+    }
+  }
+
+  populatePlayerDropdowns(speakers, assignments) {
+    const select1 = document.getElementById('player1Select');
+    const select2 = document.getElementById('player2Select');
+    
+    if (!select1 || !select2) return;
+
+    // Find current assignments
+    let player1Speaker = '';
+    let player2Speaker = '';
+    for (const [name, playerNum] of Object.entries(assignments)) {
+      if (playerNum === 1) player1Speaker = name;
+      if (playerNum === 2) player2Speaker = name;
+    }
+
+    // Populate options
+    [select1, select2].forEach(select => {
+      select.innerHTML = '<option value="">-- Select Speaker --</option>';
+      speakers.forEach(name => {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = name.charAt(0).toUpperCase() + name.slice(1);
+        select.appendChild(option);
+      });
+    });
+
+    // Set current values
+    select1.value = player1Speaker;
+    select2.value = player2Speaker;
+
+    // Add change handlers
+    select1.onchange = () => this.updatePlayerAssignment(1, select1.value);
+    select2.onchange = () => this.updatePlayerAssignment(2, select2.value);
+  }
+
+  async updatePlayerAssignment(playerNum, speakerName) {
+    try {
+      const host = location.host || 'localhost:8000';
+      
+      // Get current assignments
+      const configRes = await fetch(`${location.protocol}//${host}/api/config`);
+      const configData = await configRes.json();
+      const assignments = { ...configData.player_assignments };
+
+      // Remove any existing assignment for this player
+      for (const [name, num] of Object.entries(assignments)) {
+        if (num === playerNum) {
+          delete assignments[name];
+        }
+      }
+
+      // Add new assignment if speaker selected
+      if (speakerName) {
+        // Remove speaker from other player if assigned
+        for (const [name, num] of Object.entries(assignments)) {
+          if (name === speakerName) {
+            delete assignments[name];
+          }
+        }
+        assignments[speakerName] = playerNum;
+      }
+
+      // Update server
+      await fetch(`${location.protocol}//${host}/api/player-assignments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(assignments)
+      });
+
+      // Refresh UI
+      this.fetchPlayerAssignments();
+      console.log('[BoxingVoice] player assignments updated:', assignments);
+    } catch (e) {
+      console.error('[BoxingVoice] failed to update player assignment:', e);
     }
   }
 
@@ -107,18 +203,44 @@ class BoxingVoiceInput {
     this.lastCommandTime[player] = now;
 
     // Route to game
-    if (window.boxingGame) {
-      if (action === 'start') {
-        window.boxingGame.startMatch();
-      } else if (action === 'pause') {
-        window.boxingGame.togglePause();
-      } else {
-        window.boxingGame.handleCommand(player, action);
-      }
+    if (action === 'start') {
+      this.game.startMatch();
+    } else if (action === 'pause') {
+      this.game.togglePause();
+    } else if (action === 'block' || action === 'dodge') {
+      this.activateVoiceHold(player, action);
+    } else {
+      this.game.handleCommand(player, action);
     }
 
     this.showCommand(player, action);
-    console.log(`[BoxingVoice] P${player}: ${action} (${confidence.toFixed(2)})`);
+  }
+  
+  activateVoiceHold(player, action) {
+    // If already holding this action, don't reset the timer
+    if (this.voiceHoldTimers[player][action]) {
+      return;
+    }
+    
+    // Start holding
+    this.game.handleCommand(player, action, true);
+    
+    // Set timer to release after duration
+    const startTime = performance.now();
+    const interval = setInterval(() => {
+      const elapsed = performance.now() - startTime;
+      if (elapsed >= this.voiceHoldDuration) {
+        // Release
+        this.game.handleCommand(player, action, false);
+        clearInterval(interval);
+        delete this.voiceHoldTimers[player][action];
+      } else {
+        // Continue holding
+        this.game.handleCommand(player, action, true);
+      }
+    }, 50); // Update every 50ms
+    
+    this.voiceHoldTimers[player][action] = interval;
   }
 
   showCommand(player, command) {

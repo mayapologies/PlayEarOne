@@ -107,6 +107,15 @@ class Fighter {
       }
     }
 
+    // Post-knockdown invincibility timer
+    if (this.isInvincible && this.dodgeTimer > 0 && this.state !== 'dodging') {
+      this.dodgeTimer -= deltaTime;
+      if (this.dodgeTimer <= 0) {
+        this.isInvincible = false;
+        this.dodgeTimer = 0;
+      }
+    }
+
     // Stamina regen (not while blocking)
     if (this.state !== 'blocking' && this.stamina < MAX_STAMINA) {
       this.stamina = Math.min(MAX_STAMINA, this.stamina + STAMINA_REGEN_RATE * (deltaTime / 1000));
@@ -141,6 +150,7 @@ class Fighter {
     this.currentAttack = { ...def };
     this.attackTimer = 0;
     this.attackActive = false;
+    this._hitLanded = false;
     this.actionCooldown = ATTACK_COOLDOWN;
     this.stats.punchesThrown++;
     return true;
@@ -151,6 +161,7 @@ class Fighter {
     this.currentAttack = null;
     this.attackActive = false;
     this.attackTimer = 0;
+    this._hitLanded = false;
   }
 
   block(isHolding) {
@@ -248,6 +259,8 @@ class Fighter {
 
     if (this.state !== 'attacking' && this.state !== 'blocking') {
       this.state = 'hurt';
+      // Brief hitstun - prevents instant counter-attack
+      this.actionCooldown = 150;
       setTimeout(() => {
         if (this.state === 'hurt') this.state = 'idle';
       }, 200);
