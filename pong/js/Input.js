@@ -1,6 +1,10 @@
 const keys = {};
 
 function initInput() {
+  window.addEventListener('mousedown', () => {
+      audioEngine.init();
+  }, { once: true });
+
   window.addEventListener('keydown', (event) => {
     keys[event.key] = true;
 
