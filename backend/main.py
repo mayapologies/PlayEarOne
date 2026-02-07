@@ -1,5 +1,9 @@
 import os
 import sys
+import warnings
+
+# Suppress torchaudio deprecation warning from pyannote
+warnings.filterwarnings("ignore", message=".*torchaudio._backend.set_audio_backend.*")
 
 # Add backend directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

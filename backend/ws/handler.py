@@ -71,6 +71,10 @@ class WebSocketHandler:
             while True:
                 message = await websocket.receive()
 
+                # Check for disconnect message
+                if message.get("type") == "websocket.disconnect":
+                    break
+
                 if "bytes" in message:
                     # Binary audio data
                     await self._handle_audio(websocket, message["bytes"])
@@ -302,7 +306,7 @@ class WebSocketHandler:
 
             start_time = time.perf_counter()
 
-            # Prepare audio for Pyannote
+            # Prepare audio for speaker embedding
             audio_tensor, sample_rate = self.audio_processor.prepare_for_pyannote(audio)
 
             # Run speaker ID and command parsing in parallel
@@ -376,7 +380,7 @@ class WebSocketHandler:
             return
 
         try:
-            # Prepare for Pyannote
+            # Prepare audio for speaker embedding
             audio_tensor, sample_rate = self.audio_processor.prepare_for_pyannote(audio)
 
             # Run enrollment in thread pool
