@@ -1,6 +1,7 @@
 import json
 import time
-from typing import Optional
+import re
+from typing import Optional, List
 from dataclasses import dataclass
 import numpy as np
 from openai import OpenAI
@@ -437,3 +438,72 @@ Examples:
             raw_text=text,
             confidence=0.0
         )
+
+    def parse_multiple(self, audio: np.ndarray, sample_rate: int) -> List[ParsedCommand]:
+        """
+        Parse audio and extract ALL commands found.
+        Returns list of ParsedCommands (may be empty, one, or multiple).
+        """
+        try:
+            # Step 1: Transcribe
+            t0 = time.perf_counter()
+            raw_text = self._transcribe(audio, sample_rate)
+            transcribe_time = (time.perf_counter() - t0) * 1000
+
+            if not raw_text:
+                print(f"[Transcribe] {transcribe_time:.0f}ms (empty)")
+                return []
+
+            text_lower = raw_text.lower().strip()
+            words = text_lower.split()
+
+            # Find all commands in the text (in order)
+            commands_found = []
+
+            for word in words:
+                matched_cmd = None
+
+                # Direct match
+                if word in self.valid_commands:
+                    matched_cmd = word
+
+                # Phonetic matches
+                elif word in ["yup", "yep", "uh", "uhh", "app", "op"]:
+                    matched_cmd = "up"
+                elif word in ["dawn", "town", "darn"]:
+                    matched_cmd = "down"
+                elif word in ["star", "starts", "starting", "started"]:
+                    matched_cmd = "start"
+                elif word in ["paws", "paused", "pausing", "paus", "pos"]:
+                    matched_cmd = "pause"
+                elif word in ["job", "ja", "jap", "jabs", "jabbed"]:
+                    matched_cmd = "jab"
+                elif word in ["crawss", "craw", "crosses", "crossed"]:
+                    matched_cmd = "cross"
+                elif word in ["huk", "hooked", "hooking", "hulk"]:
+                    matched_cmd = "hook"
+                elif word in ["upper", "cut", "upperkat", "upcut", "uppercuts"]:
+                    matched_cmd = "uppercut"
+                elif word in ["blog", "blocked", "blocking", "box", "bloc"]:
+                    matched_cmd = "block"
+                elif word in ["doge", "dodged", "dodging", "dok", "dogs"]:
+                    matched_cmd = "dodge"
+                elif word in ["duck", "ducked", "ducking", "ducks"]:
+                    matched_cmd = "duck"
+
+                if matched_cmd:
+                    commands_found.append(matched_cmd)
+
+            if commands_found:
+                print(f"[Transcribe] {transcribe_time:.0f}ms | Found {len(commands_found)} commands: {commands_found} from '{raw_text}'")
+                return [
+                    ParsedCommand(command=cmd, raw_text=raw_text, confidence=0.9)
+                    for cmd in commands_found
+                ]
+            else:
+                print(f"[Transcribe] {transcribe_time:.0f}ms | No commands in: '{raw_text}'")
+                return [ParsedCommand(command=None, raw_text=raw_text, confidence=0.0)]
+
+        except Exception as e:
+            print(f"Command parsing error: {e}")
+            return []
