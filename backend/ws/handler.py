@@ -3,7 +3,7 @@ import asyncio
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, asdict
 from fastapi import WebSocket, WebSocketDisconnect
 import numpy as np
@@ -28,7 +28,12 @@ class CommandResult:
     speech_duration: float  # How long they've been speaking (seconds)
 
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        d = asdict(self)
+        # Convert numpy floats to Python floats for JSON serialization
+        for key, value in d.items():
+            if isinstance(value, (np.floating, np.integer)):
+                d[key] = float(value)
+        return d
 
 
 class WebSocketHandler:
@@ -48,6 +53,9 @@ class WebSocketHandler:
         self.buffers: Dict[int, AudioBuffer] = {}
         self.enrollment_buffers: Dict[int, AudioBuffer] = {}
         
+        # Per-connection mode: "game" or "frontend" (default)
+        self.connection_modes: Dict[int, str] = {}
+
         # Track speech duration per speaker per connection
         self.speech_start_time: Dict[tuple, Optional[float]] = {}  # (conn_id, speaker) -> start_time
         self.last_speech_time: Dict[tuple, float] = {}  # (conn_id, speaker) -> timestamp
@@ -77,6 +85,7 @@ class WebSocketHandler:
             # Cleanup
             self.buffers.pop(conn_id, None)
             self.enrollment_buffers.pop(conn_id, None)
+            self.connection_modes.pop(conn_id, None)
 
     async def _handle_control(self, websocket: WebSocket, message: Dict[str, Any]) -> None:
         """Handle control messages from client."""
@@ -132,6 +141,12 @@ class WebSocketHandler:
             self.buffers[conn_id] = AudioBuffer()
             await self._send_message(websocket, {"type": "listening_stopped"})
 
+        elif msg_type == "set_mode":
+            conn_id = id(websocket)
+            mode = message.get("mode", "frontend")
+            self.connection_modes[conn_id] = mode
+            print(f"[Mode] Connection {conn_id} set to '{mode}'")
+
         elif msg_type == "ping":
             await self._send_message(websocket, {"type": "pong"})
 
@@ -148,27 +163,28 @@ class WebSocketHandler:
 
         # Process live audio when we have enough
         buffer = self.buffers.get(conn_id)
-        if buffer and buffer.duration_seconds() >= 1.5:
+        if buffer and buffer.duration_seconds() >= 0.5:
             await self._process_audio_chunk(websocket, buffer)
 
     async def _process_audio_chunk(self, websocket: WebSocket, buffer: AudioBuffer) -> None:
         """Process accumulated audio for command detection."""
-        # Get audio from buffer (1.5 second chunks for better speaker ID)
-        audio = buffer.consume(1.5)
+        # Get audio from buffer
+        audio = buffer.consume(0.75)
         if audio is None:
             return
 
         # Run processing in thread pool to avoid blocking
         loop = asyncio.get_event_loop()
         conn_id = id(websocket)
-        result = await loop.run_in_executor(
+        results = await loop.run_in_executor(
             None,
             self._process_audio_sync,
             audio,
             conn_id
         )
 
-        if result:
+        # Send all detected commands
+        for result in results:
             player = config.PLAYER_ASSIGNMENTS.get(result.speaker, None)
             await self._send_message(websocket, {
                 "type": "command",
@@ -257,27 +273,32 @@ class WebSocketHandler:
                 return True
         return False
 
-    def _identify_speaker(self, audio_tensor: torch.Tensor, sample_rate: int):
+    def _identify_speaker(self, audio_tensor: torch.Tensor, sample_rate: int, conn_id: int = None):
         """Run speaker identification (for parallel execution)."""
-        # Get active players from config
-        allowed_speakers = list(config.PLAYER_ASSIGNMENTS.keys()) if config.PLAYER_ASSIGNMENTS else None
+        # Only restrict to assigned players when in game mode
+        mode = self.connection_modes.get(conn_id, "frontend") if conn_id else "frontend"
+        if mode == "game" and config.PLAYER_ASSIGNMENTS:
+            allowed_speakers = list(config.PLAYER_ASSIGNMENTS.keys())
+        else:
+            allowed_speakers = None
         return self.identifier.identify(audio_tensor, sample_rate, allowed_speakers=allowed_speakers)
 
     def _parse_command(self, audio: np.ndarray, sample_rate: int):
-        """Run command parsing (for parallel execution)."""
-        return self.command_parser.parse(audio, sample_rate)
+        """Run command parsing (for parallel execution). Returns list of commands."""
+        return self.command_parser.parse_multiple(audio, sample_rate)
 
-    def _process_audio_sync(self, audio: np.ndarray, conn_id: int) -> Optional[CommandResult]:
-        """Synchronous audio processing with parallel speaker ID and transcription."""
+    def _process_audio_sync(self, audio: np.ndarray, conn_id: int) -> List[CommandResult]:
+        """Synchronous audio processing with parallel speaker ID and transcription.
+        Returns list of CommandResults (may contain multiple if multiple commands detected)."""
         try:
             # Calculate volume first
             volume = self._calculate_volume(audio)
             # Consider any non-silent audio as speaking
             is_speaking = volume > 0.0
-            
+
             # Skip very silent audio
             if self._is_audio_silent(audio):
-                return None
+                return []
 
             start_time = time.perf_counter()
 
@@ -286,7 +307,7 @@ class WebSocketHandler:
 
             # Run speaker ID and command parsing in parallel
             speaker_future = self.executor.submit(
-                self._identify_speaker, audio_tensor, sample_rate
+                self._identify_speaker, audio_tensor, sample_rate, conn_id
             )
             command_future = self.executor.submit(
                 self._parse_command, audio, sample_rate
@@ -296,39 +317,44 @@ class WebSocketHandler:
             speaker_match = speaker_future.result()
             speaker_time = time.perf_counter() - start_time
 
-            parsed = command_future.result()
+            parsed_list = command_future.result()  # Now returns a list
             total_time = time.perf_counter() - start_time
+
+            # Get raw_text from first result if available
+            raw_text = parsed_list[0].raw_text if parsed_list else None
 
             # Log timing
             print(f"[Timing] Speaker ID: {speaker_time*1000:.0f}ms | "
                   f"Total (parallel): {total_time*1000:.0f}ms | "
-                  f"Text: '{parsed.raw_text}'")
+                  f"Text: '{raw_text}'")
 
             # Calculate speech duration for this speaker
             speech_duration = self._get_speech_duration(conn_id, speaker_match.name, is_speaking)
 
             # Filter only silence hallucinations
-            if self._is_silence_hallucination(parsed.raw_text):
-                return None
+            if self._is_silence_hallucination(raw_text):
+                return []
 
-            # Return result for any detected speech (with or without command)
-            if parsed.raw_text:
-                return CommandResult(
-                    timestamp=datetime.utcnow().isoformat() + "Z",
-                    speaker=speaker_match.name,
-                    speaker_confidence=float(speaker_match.confidence),
-                    command=parsed.command,
-                    raw_text=parsed.raw_text,
-                    command_confidence=float(parsed.confidence),
-                    volume=volume,
-                    speech_duration=float(speech_duration)
-                )
+            # Build results for all detected commands
+            results = []
+            for parsed in parsed_list:
+                if parsed.command:  # Only include actual commands
+                    results.append(CommandResult(
+                        timestamp=datetime.utcnow().isoformat() + "Z",
+                        speaker=speaker_match.name,
+                        speaker_confidence=speaker_match.confidence,
+                        command=parsed.command,
+                        raw_text=parsed.raw_text,
+                        command_confidence=parsed.confidence,
+                        volume=volume,
+                        speech_duration=speech_duration
+                    ))
 
-            return None
+            return results
 
         except Exception as e:
             print(f"Processing error: {e}")
-            return None
+            return []
 
     async def _complete_enrollment(self, websocket: WebSocket, name: str) -> None:
         """Complete speaker enrollment with collected audio."""
@@ -382,7 +408,18 @@ class WebSocketHandler:
 
     async def _send_message(self, websocket: WebSocket, message: Dict[str, Any]) -> None:
         """Send JSON message to client."""
-        await websocket.send_text(json.dumps(message))
+        await websocket.send_text(json.dumps(message, default=self._json_default))
+
+    @staticmethod
+    def _json_default(obj):
+        """Handle numpy types for JSON serialization."""
+        if isinstance(obj, (np.floating,)):
+            return float(obj)
+        if isinstance(obj, (np.integer,)):
+            return int(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
     async def _send_error(self, websocket: WebSocket, error: str) -> None:
         """Send error message to client."""
