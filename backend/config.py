@@ -21,6 +21,7 @@ CHUNK_DURATION_MS = 500
 
 # Speaker identification
 SPEAKER_SIMILARITY_THRESHOLD = 0.3  # Cosine similarity threshold for speaker matching
+SPEAKER_GAME_THRESHOLD = 0.15  # Lower threshold for active game players
 ENROLLMENT_DURATION_SECONDS = 5
 
 # Paths
@@ -28,4 +29,10 @@ DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 SPEAKERS_FILE = os.path.join(DATA_DIR, "speakers.json")
 
 # Valid commands (extensible)
-VALID_COMMANDS = ["up", "down"]
+VALID_COMMANDS = ["up", "down", "start", "serve", "resume", "pause"]
+
+# Player assignments: speaker name → player number (1 = left, 2 = right)
+PLAYER_ASSIGNMENTS = {
+    "Jalen": 1,
+    "UP": 2,
+}

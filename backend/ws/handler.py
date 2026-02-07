@@ -64,7 +64,7 @@ class WebSocketHandler:
                     # JSON control message
                     await self._handle_control(websocket, json.loads(message["text"]))
 
-        except WebSocketDisconnect:
+        except (WebSocketDisconnect, RuntimeError):
             pass
         finally:
             # Cleanup
@@ -141,13 +141,13 @@ class WebSocketHandler:
 
         # Process live audio when we have enough
         buffer = self.buffers.get(conn_id)
-        if buffer and buffer.duration_seconds() >= 1.0:
+        if buffer and buffer.duration_seconds() >= 1.5:
             await self._process_audio_chunk(websocket, buffer)
 
     async def _process_audio_chunk(self, websocket: WebSocket, buffer: AudioBuffer) -> None:
         """Process accumulated audio for command detection."""
-        # Get audio from buffer (1 second chunks)
-        audio = buffer.consume(1.0)
+        # Get audio from buffer (1.5 second chunks for better speaker ID)
+        audio = buffer.consume(1.5)
         if audio is None:
             return
 
@@ -160,8 +160,10 @@ class WebSocketHandler:
         )
 
         if result:
+            player = config.PLAYER_ASSIGNMENTS.get(result.speaker, None)
             await self._send_message(websocket, {
                 "type": "command",
+                "player": player,
                 **result.to_dict()
             })
 
@@ -189,7 +191,9 @@ class WebSocketHandler:
 
     def _identify_speaker(self, audio_tensor: torch.Tensor, sample_rate: int):
         """Run speaker identification (for parallel execution)."""
-        return self.identifier.identify(audio_tensor, sample_rate)
+        # Get active players from config
+        allowed_speakers = list(config.PLAYER_ASSIGNMENTS.keys()) if config.PLAYER_ASSIGNMENTS else None
+        return self.identifier.identify(audio_tensor, sample_rate, allowed_speakers=allowed_speakers)
 
     def _parse_command(self, audio: np.ndarray, sample_rate: int):
         """Run command parsing (for parallel execution)."""
@@ -257,18 +261,26 @@ class WebSocketHandler:
             await self._send_error(websocket, "Failed to get audio")
             return
 
-        # Prepare for Pyannote
-        audio_tensor, sample_rate = self.audio_processor.prepare_for_pyannote(audio)
+        try:
+            # Prepare for Pyannote
+            audio_tensor, sample_rate = self.audio_processor.prepare_for_pyannote(audio)
 
-        # Run enrollment in thread pool
-        loop = asyncio.get_event_loop()
-        success, message = await loop.run_in_executor(
-            None,
-            self.enrollment.enroll,
-            name,
-            audio_tensor,
-            sample_rate
-        )
+            # Run enrollment in thread pool
+            loop = asyncio.get_event_loop()
+            success, message = await loop.run_in_executor(
+                None,
+                self.enrollment.enroll,
+                name,
+                audio_tensor,
+                sample_rate
+            )
+        except Exception as e:
+            print(f"Enrollment error: {e}")
+            import traceback
+            traceback.print_exc()
+            await self._send_error(websocket, f"Enrollment failed: {e}")
+            self.enrollment_buffers[conn_id] = AudioBuffer()
+            return
 
         # Clear enrollment buffer
         self.enrollment_buffers[conn_id] = AudioBuffer()
