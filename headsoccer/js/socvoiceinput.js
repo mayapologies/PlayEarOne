@@ -22,6 +22,7 @@ class SoccerVoiceInput {
     this.lastCommand = { 1: null, 2: null };
     this.lastCommandTime = { 1: 0, 2: 0 };
     this.debounceTime = 100;
+    this.volumeDecayTimers = {};
   }
 
   async initialize() {
@@ -159,8 +160,15 @@ class SoccerVoiceInput {
 
     this.socket.onmessage = (event) => {
       const data = JSON.parse(event.data);
-      if (data.type === 'command' && data.player && data.command) {
-        this.handleVoiceCommand(data.player, data.command, data.command_confidence);
+      if (data.type === 'command') {
+        if (data.player) {
+          this.updateVolumeMeter(data.player, data.volume || 0);
+        }
+        if (data.player && data.command) {
+          this.handleVoiceCommand(data.player, data.command, data.command_confidence, data.volume || 0);
+        }
+      } else if (data.type === 'volume' && data.player) {
+        this.updateVolumeMeter(data.player, data.volume || 0);
       }
     };
 
@@ -176,7 +184,7 @@ class SoccerVoiceInput {
     };
   }
 
-  handleVoiceCommand(player, command, confidence) {
+  handleVoiceCommand(player, command, confidence, volume = 0) {
     if (confidence < 0.65) return;
 
     const action = this.commandMap[command];
@@ -197,10 +205,27 @@ class SoccerVoiceInput {
     } else if (action === 'pause') {
       this.game.togglePause();
     } else {
-      this.game.handleCommand(player, action);
+      this.game.handleCommand(player, action, volume);
     }
 
     this.showCommand(player, action);
+  }
+
+  updateVolumeMeter(player, volume) {
+    const el = document.getElementById(`player${player}Volume`);
+    if (!el) return;
+
+    const percentage = Math.round(volume * 100);
+    el.style.bottom = `${percentage}%`;
+
+    if (this.volumeDecayTimers[player]) {
+      clearTimeout(this.volumeDecayTimers[player]);
+    }
+
+    this.volumeDecayTimers[player] = setTimeout(() => {
+      el.style.bottom = '0%';
+      delete this.volumeDecayTimers[player];
+    }, 300);
   }
 
   showCommand(player, command) {

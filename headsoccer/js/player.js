@@ -78,13 +78,13 @@ class Player {
     }
   }
 
-  moveLeft() {
-    this.velocityX = -MOVE_SPEED;
+  moveLeft(speedMultiplier = 1.0) {
+    this.velocityX = -MOVE_SPEED * speedMultiplier;
     this.facing = 'left';
   }
 
-  moveRight() {
-    this.velocityX = MOVE_SPEED;
+  moveRight(speedMultiplier = 1.0) {
+    this.velocityX = MOVE_SPEED * speedMultiplier;
     this.facing = 'right';
   }
 

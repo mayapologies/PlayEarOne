@@ -103,8 +103,8 @@ Respond with JSON only, no other text:
 Examples:
 - Input "up": {{"command": "up", "confidence": 0.95}}
 - Input "go down now": {{"command": "down", "confidence": 0.90}}
-- Input "um uh": {{"command": null, "confidence": 0.0}}
-- Input "jump": {{"command": null, "confidence": 0.0}}"""
+- Input "kick it": {{"command": "kick", "confidence": 0.90}}
+- Input "um uh": {{"command": null, "confidence": 0.0}}"""
 
     def parse(self, audio: np.ndarray, sample_rate: int) -> ParsedCommand:
         """

@@ -36,6 +36,8 @@ VALID_COMMANDS = [
     "jab", "cross", "hook", "uppercut", "upper",
     "block", "guard", "dodge", "duck",
     "forward", "back", "advance", "retreat", "left", "right",
+    # Soccer
+    "jump", "kick", "shoot", "power",
     # Shared
     "start", "serve", "resume", "pause", "fight",
 ]

@@ -28,6 +28,10 @@ class SoccerGame {
     // Track which keyboard commands were already processed (debounce)
     this.keyHandled = {};
 
+    // Powerup state
+    this.flameShots = [];
+    this.goalCages = [];
+
     initInput();
   }
 
@@ -39,6 +43,8 @@ class SoccerGame {
     this.player1.reset();
     this.player2.reset();
     this.ball.reset();
+    this.flameShots = [];
+    this.goalCages = [];
     this.beginCountdown();
   }
 
@@ -104,17 +110,20 @@ class SoccerGame {
 
   // --- Command handling ---
 
-  handleCommand(player, command) {
+  handleCommand(player, command, volume = null) {
     if (this.state !== 'playing') return;
 
     const playerObj = player === 1 ? this.player1 : this.player2;
+    const speedMultiplier = volume !== null
+      ? 1.0 + volume * (VOICE_SPEED_MAX_MULTIPLIER - 1.0)
+      : 1.0;
 
     switch (command) {
       case 'left':
-        playerObj.moveLeft();
+        playerObj.moveLeft(speedMultiplier);
         break;
       case 'right':
-        playerObj.moveRight();
+        playerObj.moveRight(speedMultiplier);
         break;
       case 'jump':
         playerObj.jump();
@@ -124,6 +133,27 @@ class SoccerGame {
           this.checkKick(playerObj, player === 1 ? 'p1' : 'p2');
         }
         break;
+      case 'power':
+        this.usePowerup(playerObj, player === 1 ? 'p1' : 'p2');
+        break;
+    }
+  }
+
+  usePowerup(player, playerId) {
+    if (!player.powerupReady) return;
+
+    player.powerupReady = false;
+    player.powerupReloadTimer = POWERUP_RELOAD_TIME;
+
+    if (player.powerupType === 'flame') {
+      const direction = player.facing === 'right' ? 1 : -1;
+      const shotX = player.x + direction * (PLAYER_HEAD_RADIUS + 10);
+      const shotY = player.y - PLAYER_HEIGHT - PLAYER_HEAD_RADIUS;
+      this.flameShots.push(new FlameShot(shotX, shotY, direction, playerId));
+    } else if (player.powerupType === 'cage') {
+      // Place cage on the opponent's goal
+      const cageSide = playerId === 'p1' ? 'right' : 'left';
+      this.goalCages.push(new GoalCage(cageSide));
     }
   }
 
@@ -257,29 +287,35 @@ class SoccerGame {
   checkGoal() {
     const ballY = this.ball.y;
     const ballX = this.ball.x;
-    
+
     const goalTop = FIELD_Y - GOAL_Y_OFFSET - GOAL_HEIGHT;
     const goalBottom = FIELD_Y - GOAL_Y_OFFSET;
 
+    // Check if a cage blocks the goal
+    const leftCageActive = this.goalCages.some(c => c.active && c.side === 'left');
+    const rightCageActive = this.goalCages.some(c => c.active && c.side === 'right');
+
     // Left goal (Player 2 scores)
-    if (ballX < FIELD_LEFT && 
-        ballY > goalTop && 
+    if (ballX < FIELD_LEFT &&
+        ballY > goalTop &&
         ballY < goalBottom) {
-      if (this.ball.lastTouchedBy !== 'p2') {
-        // Own goal by P1
-        this.celebrateGoal('p2');
+      if (leftCageActive) {
+        // Cage blocks the goal — bounce ball back
+        this.ball.x = FIELD_LEFT + BALL_RADIUS;
+        this.ball.velocityX = Math.abs(this.ball.velocityX) * BALL_BOUNCE_DAMPING;
       } else {
         this.celebrateGoal('p2');
       }
     }
 
     // Right goal (Player 1 scores)
-    if (ballX > FIELD_RIGHT && 
-        ballY > goalTop && 
+    if (ballX > FIELD_RIGHT &&
+        ballY > goalTop &&
         ballY < goalBottom) {
-      if (this.ball.lastTouchedBy !== 'p1') {
-        // Own goal by P2
-        this.celebrateGoal('p1');
+      if (rightCageActive) {
+        // Cage blocks the goal — bounce ball back
+        this.ball.x = FIELD_RIGHT - BALL_RADIUS;
+        this.ball.velocityX = -Math.abs(this.ball.velocityX) * BALL_BOUNCE_DAMPING;
       } else {
         this.celebrateGoal('p1');
       }
@@ -329,6 +365,41 @@ class SoccerGame {
     this.player2.update(deltaTime);
     this.ball.update(deltaTime);
 
+    // Update flame shots
+    for (const shot of this.flameShots) {
+      shot.update(deltaTime);
+
+      if (!shot.active) continue;
+
+      // Check if flame scores a goal
+      const goalHit = shot.checkGoal();
+      if (goalHit) {
+        // Check if a cage blocks it
+        const cageBlocks = this.goalCages.some(c => c.active && c.side === goalHit);
+        if (cageBlocks) {
+          shot.active = false;
+        } else {
+          const scorer = goalHit === 'left' ? 'p2' : 'p1';
+          this.celebrateGoal(scorer);
+          shot.active = false;
+        }
+        continue;
+      }
+
+      // Check if opponent blocks the flame with their head
+      const opponent = shot.owner === 'p1' ? this.player2 : this.player1;
+      if (shot.checkPlayerBlock(opponent)) {
+        shot.active = false;
+      }
+    }
+    this.flameShots = this.flameShots.filter(s => s.active);
+
+    // Update goal cages
+    for (const cage of this.goalCages) {
+      cage.update(deltaTime);
+    }
+    this.goalCages = this.goalCages.filter(c => c.active);
+
     // Check collisions
     this.checkBallPlayerCollision();
     this.checkGoal();
@@ -349,9 +420,19 @@ class SoccerGame {
     this.renderer.drawPlayer(this.player1);
     this.renderer.drawPlayer(this.player2);
     this.renderer.drawBall(this.ball);
+    // Draw powerup elements
+    for (const shot of this.flameShots) {
+      this.renderer.drawFlameShot(shot);
+    }
+    for (const cage of this.goalCages) {
+      this.renderer.drawGoalCage(cage);
+    }
+    this.renderer.drawPowerupReloadIndicator(this.player1, 'left');
+    this.renderer.drawPowerupReloadIndicator(this.player2, 'right');
+
     this.renderer.drawScore(this.score.p1, this.score.p2);
     this.renderer.drawTimer(this.matchTimer);
-    
+
     if (this.state === 'waiting') {
       this.renderer.drawCenterText('HEAD SOCCER', 48);
       this.renderer.drawSubText('Press SPACE or ENTER to play');

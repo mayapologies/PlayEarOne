@@ -6,8 +6,8 @@
   <title>Head Soccer</title>
   <link rel="stylesheet" id="cssLink">
   <script>
-    if (location.pathname === '/head-soccer') {
-      window.__basePath = '/head-soccer-static/';
+    if (location.pathname === '/headsoccer') {
+      window.__basePath = '/headsoccer-static/';
     } else {
       window.__basePath = '';
     }
@@ -27,6 +27,9 @@
         <option value="">-- Select Speaker --</option>
       </select>
       <div class="player-command" id="player1Cmd"></div>
+      <div class="volume-meter">
+        <div class="volume-bar" id="player1Volume"></div>
+      </div>
     </div>
     <div id="centerColumn">
       <div id="voiceStatus">Voice: Connecting...</div>
@@ -38,6 +41,9 @@
         <option value="">-- Select Speaker --</option>
       </select>
       <div class="player-command" id="player2Cmd"></div>
+      <div class="volume-meter">
+        <div class="volume-bar" id="player2Volume"></div>
+      </div>
     </div>
   </div>
 
