@@ -5,765 +5,531 @@ A 2D side-view boxing game where two players control fighters using voice comman
 
 ## Core Voice Commands
 
-### Movement Commands
-- **"forward"** / **"advance"** - Move toward opponent
-- **"back"** / **"retreat"** - Move away from opponent
-- **"dodge"** / **"duck"** - Quick defensive duck (brief invincibility)
-
 ### Attack Commands
 - **"jab"** / **"left"** - Quick left jab (fast, low damage)
 - **"cross"** / **"right"** - Right cross (slower, medium damage)
 - **"hook"** - Left hook (medium speed, good damage)
 - **"uppercut"** - Uppercut (slow, high damage, short range)
 
+### Movement Commands
+- **"forward"** / **"advance"** - Move toward opponent
+- **"back"** / **"retreat"** - Move away from opponent
+
 ### Defense Commands
-- **"block"** / **"guard"** - Raise guard (reduces damage)
-- **"weave"** - Side-to-side head movement (dodge timing-based)
+- **"block"** / **"guard"** - Raise guard (reduces damage, auto-releases after 1.5s)
+- **"dodge"** / **"duck"** - Quick defensive duck (brief invincibility)
+
+### Game Control Commands
+- **"pause"** - Pause/unpause the match
+- **"fight"** / **"start"** - Start round or rematch
 
 ## Game Mechanics
 
 ### Fighter Stats
 - **Health**: 100 HP per fighter
-- **Stamina**: 100 points (depletes with actions, regenerates slowly)
+- **Stamina**: 100 points (depletes with actions, regenerates slowly) *(post-MVP)*
 - **Position**: X coordinate on horizontal axis
-- **State**: Idle, Moving, Attacking, Blocking, Dodging, Stunned, KO'd
+- **State**: idle, moving, attacking, blocking, dodging, hurt, stunned, KO
 
 ### Combat System
-- **Hit Detection**: Simple bounding box collision
-- **Damage Values**:
-  - Jab: 5 HP
-  - Cross: 10 HP
-  - Hook: 15 HP
-  - Uppercut: 25 HP
-- **Stamina Cost**:
-  - Jab: 5
-  - Cross: 10
-  - Hook: 15
-  - Uppercut: 25
-  - Block: 2/second
-  - Dodge: 15
-- **Block Reduction**: 50% damage when blocking
-- **Dodge Window**: 0.3 second invincibility frame
-- **Attack Range**: 
-  - Jab: 60px
-  - Cross: 70px
-  - Hook: 50px
-  - Uppercut: 40px
-- **Attack Speed**:
-  - Jab: 200ms
-  - Cross: 350ms
-  - Hook: 400ms
-  - Uppercut: 600ms
-- **Recovery Time**: Brief cooldown after each attack to prevent spam
-- **Stun Mechanic**: Taking 3 hits in 2 seconds causes 1-second stun
+
+**Damage Values**:
+| Attack    | Damage | Range | Duration | Stamina Cost | Cooldown |
+|-----------|--------|-------|----------|--------------|----------|
+| Jab       | 10 HP  | 80px  | 200ms    | 5            | 300ms    |
+| Cross     | 20 HP  | 90px  | 400ms    | 10           | 300ms    |
+| Hook      | 15 HP  | 70px  | 350ms    | 12           | 300ms    |
+| Uppercut  | 25 HP  | 60px  | 500ms    | 20           | 300ms    |
+
+**Hit Detection**: Bounding box collision during active attack frames (30%-70% of attack duration).
+
+**Block Mechanic**:
+- Reduces incoming damage by 60%
+- Auto-releases after 1.5 seconds (voice commands are discrete, not held)
+- Any attack or movement command cancels block immediately
+- Costs 2 stamina/second while active *(post-MVP)*
+
+**Dodge Mechanic**:
+- 300ms invincibility window
+- Costs 15 stamina *(post-MVP)*
+- Fighter visually crouches during dodge
+
+**Knockdown System** *(post-MVP)*:
+- Triggered when a single hit deals 20+ damage while fighter is below 30 HP
+- Fighter falls to ground for 2 seconds, then auto-recovers to standing with brief invincibility
+- 3 knockdowns in one round = TKO (automatic round loss)
+- Knockdown counter resets each round
+
+**Stun Mechanic** *(post-MVP)*:
+- Taking 3 hits within 2 seconds causes 1-second stun
+- Stunned fighter cannot act but can still take damage
+- Visual indicator: stars above head
+
+### Movement Model
+- **MVP**: Instant 50px teleport per command (snappy, responsive to voice latency)
+- **Post-MVP option**: Velocity-based with acceleration (smoother but may feel laggy with voice delay)
+- **Boundaries**: Fighters clamped to 50px-750px on canvas
+- **Minimum distance**: 100px between fighters (auto-push apart)
+- **Maximum distance**: 400px between fighters (can't retreat further)
 
 ### Round System
 - **Round Time**: 90 seconds
 - **Rounds**: Best of 3
 - **Victory Conditions**:
   - KO (health reaches 0)
-  - TKO (3 knockdowns in one round)
+  - TKO (3 knockdowns in one round) *(post-MVP)*
   - Decision (higher health at time limit)
+- **Between rounds**: 3-second intermission, health resets, positions reset
 
 ## Visual Design
 
 ### Art Style
 - **Minimalist 2D sprites** - Simple geometric shapes with clear silhouettes
-- **Color Scheme**: 
+- **Color Scheme**:
   - Player 1: Blue trunks/gloves
   - Player 2: Red trunks/gloves
-  - Background: Neutral grays with crowd silhouettes
+  - Background: Neutral grays with ring floor
 - **Animation Frames**: 3-5 frames per action for smooth motion
 
 ### Fighter Representation
 ```
-Idle Pose:
-    O     (head)
-   /|\    (body/arms)
-   / \    (legs)
-
-Jab Pose:
-    O
-   /|==   (extended arm)
-   / \
-
-Block Pose:
-    O
-   [|]    (raised guard)
-   / \
+Idle Pose:        Jab Pose:         Block Pose:
+    O                 O                 O
+   /|\               /|==              [|]
+   / \               / \               / \
 ```
-
-### UI Elements
-- **Top Bar**: Health bars, round timer, round counter
-- **Side Panels**: 
-  - Fighter names
-  - Stamina bars (vertical)
-  - Last command indicator
-  - Volume meter (from existing system)
-- **Center**: Arena with distance markers
-- **Bottom**: Command hints (optional tutorial mode)
 
 ### Screen Layout
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ P1: ████████████░░░░  90s  Round 1  ░░░░████████████  :P2  │
+│ P1: ████████████░░░░  90s  Round 1  ░░░░████████████  :P2   │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
-│  🟦 ░░░░                                      ░░░░ 🟥      │
-│  P1  STA                                       STA  P2      │
-│  ███  [█]                                     [█]  ███      │
-│  ███  [█]                                     [█]  ███      │
-│  ███  [█]                                     [█]  ███      │
-│      [█]                                     [█]            │
-│      [░]                                     [█]            │
+│  P1                                                  P2     │
+│  [CMD]                                             [CMD]    │
+│  [VOL]                                             [VOL]    │
 │                                                             │
 │           O                           O                     │
 │          /|\                         /|\                    │
 │          / \                         / \                    │
-│  ─────────────────────────────────────────────────         │
-│         RING                                                │
+│  ─────────────────────────────────────────────────          │
+│                      RING                                   │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+### UI Elements
+- **Top Bar**: Health bars, round timer, round counter
+- **Side Panels**:
+  - Player names (from speaker assignments)
+  - Speaker selection dropdowns (reuse from Pong)
+  - Last command indicator
+  - Volume meter (reuse from Pong)
+- **Center**: Arena with ring floor
+- **Bottom**: Command hints (optional tutorial mode)
 
 ## Technical Architecture
 
 ### File Structure
 ```
 boxing/
-  index.html           - Main game page, canvas setup, script loading
-  styles.css          - UI styling, health bars, overlays, responsive layout
+  index.html            - Game page with canvas, player panels, script loading
+  styles.css            - Health bars, ring styling, overlays, responsive layout
   js/
-    constants.js      - Game constants (MVP: damage, speeds, ranges, cooldowns)
-                       - Attack definitions: { type, damage, range, duration, stamina }
-                       - Fighter constants: maxHealth, moveSpeed, attackCooldown
-                       - Canvas dimensions, colors
-    
-    Fighter.js        - Fighter entity class
-                       - MVP: position, health, state, facing, takeDamage(), render()
-                       - Post-MVP: stamina, animations, hitbox/hurtbox, combo tracking
-                       - Methods: attack(type), block(), dodge(), move(direction)
-                       - updateAnimation(deltaTime) - frame advancement
-                       - canPerformAction(actionType) - stamina/cooldown checks
-     (Detailed)
+    constants.js        - Attack definitions, fighter constants, canvas dimensions
+    Fighter.js          - Fighter entity class (position, health, state, combat)
+    Game.js             - Game orchestrator (loop, collisions, rounds, state machine)
+    Renderer.js         - Canvas drawing (ring, fighters, health bars, overlays)
+    BoxingVoiceInput.js - Extends VoiceInput with boxing command mapping
+    Input.js            - Keyboard fallback controls
+    AudioManager.js     - Sound effects (post-MVP)
+    AnimationManager.js - Sprite animation controller (post-MVP)
+```
+
+### Core Classes
+
+#### Fighter Class
 ```javascript
 class Fighter {
-  // Core Properties
-  constructor(x, y, facing, color) {
-    this.position = { x, y };              // Current position on canvas
-    this.startPosition = { x, y };         // Reset position for new rounds
-    this.velocity = { x: 0, y: 0 };        // For smooth movement (post-MVP)
-    
-    // Stats
-    this.maxHealth = 100;
-    this.health = 100;                     // Current health (0-100)
-    this.maxStamina = 100;                 // Post-MVP
-    this.stamina = 100;                    // Post-MVP (0-100)
-    
-    // State Management
-    this.state = 'idle';                   // idle, moving, attacking, blocking, dodging, hurt, KO
-    this.facing = facing;                  // 'left' or 'right'
-    this.isAlive = true;
-    this.isInvincible = false;             // During dodge i-frames
-    
-    // Combat Timing
-    this.actionCooldown = 0;               // Time until can act again (ms)
-    this.attack (Detailed)
+  // Properties
+  position { x, y }
+  health (0-100)
+  stamina (0-100)         // post-MVP
+  state (idle, attacking, blocking, dodging, hurt, KO)
+  facing (left/right)
+  currentAttack           // active attack definition or null
+  actionCooldown          // ms until next action allowed
+  blockTimer              // auto-release countdown
+
+  // Methods
+  update(deltaTime)       // cooldowns, attack timing, stamina regen
+  attack(type)            // jab/cross/hook/uppercut
+  block()                 // raise guard, starts 1.5s auto-release timer
+  dodge()                 // 300ms invincibility
+  move(direction)         // forward/back 50px
+  takeDamage(amount)      // apply damage, check block/dodge
+  canPerformAction(type)  // cooldown + stamina checks
+  reset()                 // restore for new round
+}
+```
+
+#### Game Class
 ```javascript
 class Game {
-  constructor() {
-    // Canvas setup
-    this.canvas = document.getElementById('gameCanvas');
-    this.ctx = this.canvas.getContext('2d');
-    this.canvas.width = CANVAS_WIDTH;   // 800px
-    this.canvas.height = CANVAS_HEIGHT;  // 600px
-    
-    // Fighters
-    this.fighter1 = new Fighter(200, 400, 'right', 'blue');
-    this.fighter2 = new Fighter(600, 400, 'left', 'red');
-    
-    // Game State
-    this.state = 'menu';  // menu, countdown, fighting, paused, roundEnd, matchEnd
-    this.isPaused = false;
-    
-    // Timing
-    this.lastTime = 0;
-    this.deltaTime = 0;
-    
-    // Round System (Post-MVP)
-    this.roundTimer = ROUND_DURATION;  // 90 seconds
-    this.currentRound = 1;
-    this.maxRounds = 3;
-    this.roundWinners = [];  // Track who won each round
-    
-    // Score
-    this.scores = {
-      fighter1: 0,  // Rounds won
-      fighter2: 0
-    };
-    
-    // Collision tracking
-    this.lastHitBy = {
-      fighter1: null,
-      fighter2: null
-    };
-    this.hitTimestamps = {
-      fighter1: [],
-      fighter2: []
-    };
-    
-    // UI Elements
-    this.renderer = new Renderer(this.ctx);
-    this.ui = {
-      countdownText: '',
-      roundEndText: '',
-      winnerText: ''
-    };
-  }
-  
-  // Main Game Loop
-  start() {
-    this.state = 'fighting';
-    this.gameLoop(performance.now());
-  }
-  
-  gameLoop(currentTime) {
-    // Calculate delta time
-    this.deltaTime = currentTime - this.lastTime;
-    this.lastTime = c (Detailed)
+  // Properties
+  fighter1, fighter2
+  state (menu, countdown, fighting, paused, roundEnd, matchEnd)
+  roundTimer
+  currentRound
+  scores { fighter1, fighter2 }
 
-#### Backend Integration
-- **Reuse existing infrastructure**: WebSocket handler, speaker identification, command parser
-- **Add boxing commands to config.py**:
-  ```python
-  VALID_COMMANDS = ["jab", "cross", "hook", "uppercut", "block", "dodge", 
-                    "forward", "back", "guard", "duck", "advance", "retreat",
-                    "left", "right", "upper", "pause"]
-  ```
-  
-- **Phonetic matching in parser.py**:
-  ```python
-  # "jab" variations
-  if text_lower in ["jab", "job", "ja", "jap", "jabs"]:
-      return ParsedCommand("jab", raw_text, 0.85)
-  
-  # "cross" variations
-  if text_lower in ["cross", "crawss", "craw", "crosses"]:
-      return ParsedCommand("cross", raw_text, 0.85)
-  
-  # "hook" variations
-  if text_lower in ["hook", "huk", "hooked", "hulk"]:
-      return ParsedCommand("hook", raw_text, 0.85)
-  
-  # "uppercut" variations
-  if text_lower in ["uppercut", "upper", "cut", "upperkat", "upcut"]:
-      return ParsedCommand("uppercut", raw_text, 0.85)
-  
-  # "block" variations
-  if text_lower in ["block", "blog", "blocked", "box"]:
-      return ParsedCommand("block", raw_text, 0.85)
-  
-  # "dodge" variations
-  if text_lower in ["dodge", "duck", "doge", "dodged", "dok"]:
-      return ParsedCommand("dodge", raw_text, 0.85)
-  
-  # "forward" variations
-  if text_lower in ["forward", "for", "towards", "advance"]:
-      return ParsedCommand("forward", raw_text, 0.85)
-  
-  # "back" variations  
-  if text_lower in ["back", "bak", "backwards", "retreat"]:
-      return ParsedCommand("back", raw_text, 0.85)
-  ```
+  // Methods
+  start()                 // begin game loop
+  update(deltaTime)       // update fighters, collisions, timer
+  checkCollisions()       // hitbox vs hurtbox detection
+  checkWinConditions()    // KO, TKO, time
+  handleCommand(player, command)  // route voice command to fighter
+  endRound(reason)        // KO/TKO/time
+  startNextRound()        // reset fighters, countdown
+  endMatch()              // determine winner, show stats
+  reset()                 // full restart
+}
+```
 
-#### Frontend VoiceInput.js Adaptation
+### Keyboard Fallback Controls
+
+Both players need full keyboard control for testing without voice:
+
+**Player 1 (Left)**:
+| Key | Action   |
+|-----|----------|
+| A   | Move back    |
+| D   | Move forward |
+| Z   | Jab          |
+| X   | Cross        |
+| C   | Hook         |
+| V   | Uppercut     |
+| S   | Block        |
+| Q   | Dodge        |
+
+**Player 2 (Right)**:
+| Key        | Action   |
+|------------|----------|
+| ArrowLeft  | Move back    |
+| ArrowRight | Move forward |
+| J          | Jab          |
+| K          | Cross        |
+| L          | Hook         |
+| ;          | Uppercut     |
+| ArrowDown  | Block        |
+| M          | Dodge        |
+
+**Shared**:
+| Key   | Action |
+|-------|--------|
+| Space | Pause  |
+| Enter | Start / Rematch |
+
+## Game Selection & Routing
+
+### Backend Routes
+Boxing follows the same pattern as Pong in `main.py`:
+
+```python
+boxing_path = os.path.join(os.path.dirname(__file__), "..", "boxing")
+
+@app.get("/boxing")
+async def boxing():
+    index_path = os.path.join(boxing_path, "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    return {"error": "Boxing not found"}
+
+if os.path.exists(boxing_path):
+    app.mount("/boxing-static", StaticFiles(directory=boxing_path), name="boxing")
+```
+
+### Navigation
+- Enrollment page (`/`) has links to both games
+- Each game page has a nav header back to enrollment (already exists in Pong)
+- Games share the same WebSocket endpoint (`/ws`) and speaker system
+
+### Config Coexistence
+`VALID_COMMANDS` in `config.py` must include commands for ALL games as a superset. The backend doesn't need to know which game is active — it just parses audio into commands and sends them to whichever frontend is connected.
+
+```python
+VALID_COMMANDS = [
+    # Pong
+    "up", "down",
+    # Boxing
+    "jab", "cross", "hook", "uppercut",
+    "block", "dodge", "guard", "duck",
+    "forward", "back", "advance", "retreat",
+    # Shared
+    "start", "pause", "resume", "serve", "fight",
+]
+```
+
+Each game's VoiceInput class handles only the commands relevant to it — unknown commands are ignored on the frontend.
+
+## Voice Integration
+
+### BoxingVoiceInput
+Extends the existing `VoiceInput` class (or copies the pattern) with boxing-specific command handling:
+
 ```javascript
 class BoxingVoiceInput extends VoiceInput {
   constructor(game) {
     super();
     this.game = game;
-    
-    // Command to action mapping
+
     this.commandMap = {
-      'jab': 'jab',
-      'left': 'jab',
-      'cross': 'cross',
-      'right': 'cross',
+      'jab': 'jab', 'left': 'jab',
+      'cross': 'cross', 'right': 'cross',
       'hook': 'hook',
-      'uppercut': 'uppercut',
-      'upper': 'uppercut',
-      'block': 'block',
-      'guard': 'block',
-      'dodge': 'dodge',
-      'duck': 'dodge',
-      'forward': 'forward',
-      'advance': 'forward',
-      'back': 'back',
-      'retreat': 'back',
-      'pause': 'pause'
+      'uppercut': 'uppercut', 'upper': 'uppercut',
+      'block': 'block', 'guard': 'block',
+      'dodge': 'dodge', 'duck': 'dodge',
+      'forward': 'forward', 'advance': 'forward',
+      'back': 'back', 'retreat': 'back',
+      'pause': 'pause', 'fight': 'start', 'start': 'start'
     };
-    
-    // Debounce tracking
-    this.lastCommands = { 1: null, 2: null };
-    this.lastCommandTime = { 1: 0, 2: 0 };
-    this.debounceTime = 100;  // ms
+
+    this.debounceTime = 100;  // ms between same command
   }
-  
+
   handleVoiceCommand(player, command, confidence, volume) {
-    // Higher confidence threshold for combat
-    if (confidence < 0.65) {
-      console.log(`[Voice] Command '${command}' rejected: low confidence ${confidence}`);
-      return;
-    }
-    
-    // Map command
+    if (confidence < 0.65) return;  // higher threshold than Pong
+
     const action = this.commandMap[command];
-    if (!action) {
-      console.log(`[Voice] Unknown command: ${command}`);
-      return;
-    }
-    
-    // Debounce same command
-    const now = performance.now();
-    if (this.lastCommands[player] === action && 
-        now - this.lastCommandTime[player] < this.debounceTime) {
-      console.log(`[Voice] Command '${action}' debounced`);
-      return;
-    }
-    
-    this.lastCommands[player] = action;
-    this.lastCommandTime[player] = now;
-    
-    // Update volume meter
-    this.updateVolumeMeter(player, volume);
-    
-    // Send to game
+    if (!action) return;
+
+    // Debounce same command from same player
+    // ...
+
     this.game.handleCommand(player, action);
-    
-    // Show visual feedback
     this.showCommand(player, action);
-    
-    console.log(`[Voice] Player ${player}: ${action} (confidence: ${confidence.toFixed(2)}, volume: ${volume.toFixed(2)})`);
-  }
-  
-  // Volume modulation (Post-MVP)
-  getVolumeModifier(volume) {
-    // Louder voice = faster attack windup
-    // 0.5 volume = normal speed (1.0x)
-    // 1.0 volume = faster (1.3x)
-    // 0.2 volume = slower (0.8x)
-    return 0.6 + (volume * 0.7);
+    this.updateVolumeMeter(player, volume);
   }
 }
 ```
 
-#### Command Processing Flow
-1. **Audio captured** → 16kHz PCM chunks
-2. **Sent to backend** → WebSocket
-3. **Speaker identified** → Pyannote.audio embedding match
+### Command Processing Flow
+1. **Audio captured** (browser) → 16kHz PCM chunks
+2. **Sent to backend** → WebSocket binary frames
+3. **Speaker identified** → Pyannote embedding match → player number
 4. **Transcribed** → Deepgram Nova-2
 5. **Command extracted** → Direct match or LLM fallback
 6. **Volume calculated** → RMS of audio chunk
-7. **Sent to frontend** → JSON with player, command, confidence, volume
-8. **Game updated** → handleCommand() triggers fighter action
-9. **Visual feedback** → Command indicator flashes
+7. **Sent to frontend** → JSON `{ type, player, command, confidence, volume }`
+8. **Game updated** → `handleCommand()` triggers fighter action
+9. **Visual feedback** → Command indicator flashes, volume meter updates
 
-#### Simultaneous Commands (Post-MVP)
-- Parse multi-word utterances: "forward jab" → execute forward, then jab
-- LLM prompt updated to extract sequences:
-  ```
-  "move forward and jab" → ["forward", "jab"]
-  "dodge back" → ["dodge", "back"]
-  ```
-- Execute in order with slight delay (100ms between)
-- Useful for combo moves
+### Phonetic Matching
+Add to `parser.py` direct match list:
 
-#### Volume Modulation (Post-MVP)
-- **Attack Power**: Louder voice slightly increases damage (5-10%)
-  ```javascript
-  const damageMultiplier = 1.0 + (volume - 0.5) * 0.2;  // 0.9x - 1.1x
-  ```
-- **Attack Speed**: Louder voice reduces windup time
-  ```javascript
-  const speedMultiplier = 0.8 + (volume * 0.4);  // 0.8x - 1.2x
-  ```
-- **Risk/Reward**: Shouting is powerful but fatiguing; encourages varied play
+```python
+# Boxing commands
+"jab": ["jab", "job", "ja", "jap", "jabs"],
+"cross": ["cross", "crawss", "craw", "crosses"],
+"hook": ["hook", "huk", "hooked", "hulk"],
+"uppercut": ["uppercut", "upper", "cut", "upperkat", "upcut"],
+"block": ["block", "blog", "blocked", "box"],
+"dodge": ["dodge", "duck", "doge", "dodged", "dok"],
+"forward": ["forward", "for", "towards", "advance"],
+"back": ["back", "bak", "backwards", "retreat"],
+```
 
-#### Anti-Spam Measures
-- **Cooldown system**: 300ms between any actions per fighter
-- **Stamina costs**: Prevent command spamming (post-MVP)
-- **Confidence threshold**: 0.65 filters out false positives
-- **Debounce**: Same command within 100ms ignored
-- **Recovery frames**: Post-attack cooldown varies by move
-    
-    // Render
-    this.render();
-    
-    // Continue loop
-    requestAnimationFrame((time) => this.gameLoop(time));
-  }
-  
-  update(deltaTime) {
-    if (this.state !== 'fighting') {
-      return;
-    }
-    
-    // Update fighters
-    this.fighter1.update(deltaTime, this.fighter2.position);
-    this.fighter2.update(deltaTime, this.fighter1.position);
-    
-    // Check collisions
-    this.checkCollisions();
-    
-    // Update round timer (Post-MVP)
-    if (this.roundTimer > 0) {
-      this.roundTimer -= deltaTime / 1000;
-      if (this.roundTimer <= 0) {
-        this.endRound('time');
-      }
-    }
-    
-    // Check win conditions
-    this.checkWinConditions();
-    
-    // Update combo tracking
-    this.updateCombos();
-  }
-  
-  checkCollisions() {
-    // Fighter 1 attacking Fighter 2
-    if (this.fighter1.attackActive) {
-      const f1Hitbox = this.fighter1.getHitbox();
-      const f2Hurtbox = this.fighter2.getHurtbox();
-      
-      if (f1Hitbox && this.boxesCollide(f1Hitbox, f2Hurtbox)) {
-        // Only register hit once per attack
-        if (this.lastHitBy.fighter2 !== this.fighter1.currentAttack) {
-          const damage = this.fighter2.takeDamage(
-            this.fighter1.currentAttack.damage,
-            this.fighter1.currentAttack.type
-          );
-          
-          if (damage > 0) {
-            this.fighter1.stats.punchesLanded++;
-            this.fighter1.stats.damageDealt += damage;
-            this.fighter1.stats.comboCount++;
-            
-            // Track hit for combo system
-            this.hitTimestamps.fighter2.push(performance.now());
-            this.lastHitBy.fighter2 = this.fighter1.currentAttack;
-            
-            console.log(`Fighter 1 ${this.fighter1.currentAttack.type} hit! Damage: ${damage}`);
-          }
-        }
-      }
-    }
-    
-    // Fighter 2 attacking Fighter 1
-    if (this.fighter2.attackActive) {
-      const f2Hitbox = this.fighter2.getHitbox();
-      const f1Hurtbox = this.fighter1.getHurtbox();
-      
-      if (f2Hitbox && this.boxesCollide(f2Hitbox, f1Hurtbox)) {
-        if (this.lastHitBy.fighter1 !== this.fighter2.currentAttack) {
-          const damage = this.fighter1.takeDamage(
-            this.fighter2.currentAttack.damage,
-            this.fighter2.currentAttack.type
-          );
-          
-          if (damage > 0) {
-            this.fighter2.stats.punchesLanded++;
-            this.fighter2.stats.damageDealt += damage;
-            this.fighter2.stats.comboCount++;
-            
-            this.hitTimestamps.fighter1.push(performance.now());
-            this.lastHitBy.fighter1 = this.fighter2.currentAttack;
-            
-            console.log(`Fighter 2 ${this.fighter2.currentAttack.type} hit! Damage: ${damage}`);
-          }
-        }
-      }
-    }
-    
-    // Enforce minimum distance between fighters
-    const distance = Math.abs(this.fighter1.position.x - this.fighter2.position.x);
-    const minDistance = 100;  // Can't get closer than this
-    
-    if (distance < minDistance) {
-      // Push fighters apart
-      const pushAmount = (minDistance - distance) / 2;
-      if (this.fighter1.position.x < this.fighter2.position.x) {
-        this.fighter1.position.x -= pushAmount;
-        this.fighter2.position.x += pushAmount;
-      } else {
-        this.fighter1.position.x += pushAmount;
-        this.fighter2.position.x -= pushAmount;
-      }
-    }
-  }
-  
-  boxesCollide(box1, box2) {
-    return box1.x < box2.x + box2.width &&
-           box1.x + box1.width > box2.x &&
-           box1.y < box2.y + box2.height &&
-           box1.y + box1.height > box2.y;
-  }
-  
-  updateCombos() {
-    const now = performance.now();
-    const comboWindow = 2000;  // 2 seconds
-    
-    // Update Fighter 1 combo
-    this.hitTimestamps.fighter1 = this.hitTimestamps.fighter1.filter(
-      time => now - time < comboWindow
-    );
-    if (this.hitTimestamps.fighter1.length === 0) {
-      if (this.fighter1.stats.comboCount > this.fighter1.stats.longestCombo) {
-        this.fighter1.stats.longestCombo = this.fighter1.stats.comboCount;
-      }
-      this.fighter1.stats.comboCount = 0;
-    }
-    
-    // Update Fighter 2 combo
-    this.hitTimestamps.fighter2 = this.hitTimestamps.fighter2.filter(
-      time => now - time < comboWindow
-    );
-    if (this.hitTimestamps.fighter2.length === 0) {
-      if (this.fighter2.stats.comboCount > this.fighter2.stats.longestCombo) {
-        this.fighter2.stats.longestCombo = this.fighter2.stats.comboCount;
-      }
-      this.fighter2.stats.comboCount = 0;
-    }
-  }
-  
-  checkWinConditions() {
-    // MVP: Simple KO check
-    if (!this.fighter1.isAlive) {
-      this.endRound('KO', 'fighter2');
-    } else if (!this.fighter2.isAlive) {
-      this.endRound('KO', 'fighter1');
-    }
-  }
-  
-  endRound(reason, winner) {
-    if (this.state !== 'fighting') return;
-    
-    this.state = 'roundEnd';
-    console.log(`Round ${this.currentRound} ended: ${reason}`);
-    
-    // Determine winner
-    let roundWinner = winner;
-    if (reason === 'time') {
-      // Decision based on health
-      if (this.fighter1.health > this.fighter2.health) {
-        roundWinner = 'fighter1';
-      } else if (this.fighter2.health > this.fighter1.health) {
+### Multi-Word Commands *(post-MVP)*
+Parse compound utterances into command sequences:
+- "forward jab" → `["forward", "jab"]` executed with 100ms delay
+- "dodge back" → `["dodge", "back"]`
+- "throw a jab" → `["jab"]`
 
-### MVP Success Criteria
-- ✓ Both players can control fighters with voice
-- ✓ Commands trigger within 500ms
-- ✓ Punches visibly connect and reduce health
-- ✓ Winner clearly determined when health reaches 0
-- ✓ No crashes during 5-minute play session
-- ✓ Basic visual feedback (health bars, simple sprites)
-- ✓ Command recognition > 70% accuracy
+### Anti-Spam Measures
+- **Action cooldown**: 300ms between any actions per fighter
+- **Stamina costs**: Prevent command spamming *(post-MVP)*
+- **Confidence threshold**: 0.65 filters false positives (higher than Pong's 0.5)
+- **Debounce**: Same command from same player within 100ms ignored
+- **Recovery frames**: Post-attack cooldown varies by move type
 
-### Post-MVP Quality Targets
-- Command recognition accuracy > 85%
+### Volume Modulation *(post-MVP)*
+- **Attack speed**: Louder voice = faster windup (`0.8x - 1.2x` speed multiplier)
+- **Attack power**: Louder voice = slight damage boost (`0.9x - 1.1x`)
+- **Risk/reward**: Shouting is powerful but fatiguing; encourages varied play
+
+## Latency Strategy
+
+Current Pong system uses 1.5s audio buffers — too slow for boxing reactions. Target: **< 500ms command-to-action**.
+
+### Approach
+1. **Reduce audio buffer** to 0.75s for boxing (trade speaker ID accuracy for speed)
+2. **Game-specific buffer config**: Add `buffer_duration` to WebSocket `start_listening` message so the backend adjusts per game
+3. **Skip speaker ID on known sessions**: Once a speaker is identified 3+ times consecutively, skip Pyannote for subsequent chunks (just transcribe)
+4. **Optimistic matching**: Direct phonetic match returns immediately without waiting for LLM
+5. **Frontend prediction**: Show attack animation immediately on local keypress, confirm/rollback on server response *(post-MVP)*
+
+### Latency Budget
+| Stage                  | Target  |
+|------------------------|---------|
+| Audio capture + send   | < 100ms |
+| WebSocket transit      | < 10ms  |
+| Speaker ID             | < 150ms |
+| Deepgram transcription | < 200ms |
+| Command match          | < 10ms  |
+| WebSocket response     | < 10ms  |
+| Frontend render        | < 16ms  |
+| **Total**              | **< 500ms** |
+
+## Implementation Phases
+
+### MVP Phase 1: Minimum Playable
+**Goal**: Two players can fight with basic commands and see who wins
+
+- [ ] **Canvas + page setup** — `boxing/index.html` with 800x600 canvas, player panels, nav header
+- [ ] **constants.js** — Attack definitions (jab + cross only), fighter constants, canvas dimensions
+- [ ] **Fighter.js (minimal)** — Position, health, state, facing, `attack()`, `takeDamage()`, `move()`
+- [ ] **Game.js** — Game loop, `handleCommand()`, collision detection (distance-based), KO check
+- [ ] **Renderer.js** — Clear canvas, draw fighters (rectangles + circles), health bars, state text
+- [ ] **Input.js** — Keyboard fallback for both players
+- [ ] **BoxingVoiceInput.js** — Command mapping, reuse WebSocket/mic from VoiceInput
+- [ ] **Backend routes** — `/boxing` route, `/boxing-static` mount
+- [ ] **Config update** — Add boxing commands to `VALID_COMMANDS`
+
+**MVP commands**: jab, cross, forward, back (4 commands only)
+**MVP win condition**: First to 0 HP, manual refresh to restart
+
+**Success criteria**:
+- Both players see their fighters
+- Voice commands trigger visible actions
+- Punches land and reduce health
+- Winner clearly shown
+- No crashes
+
+---
+
+### Phase 2: Core Combat Feel
+**Goal**: Game feels responsive and satisfying
+
+- [ ] **Complete attack set** — Hook + uppercut with unique animations
+- [ ] **Defense** — Block (1.5s auto-release) + dodge (300ms i-frames)
+- [ ] **Stamina system** — Costs per action, regen at 10/sec
+- [ ] **Hit feedback** — Screen shake, white flash, damage numbers, stagger
+- [ ] **Enhanced sprites** — Head/torso/arms/legs as shapes, 3-frame punch animations
+- [ ] **Hitbox/hurtbox** — Separate boxes, attack active during 30%-70% of duration
+
+---
+
+### Phase 3: Game Structure
+**Goal**: Complete match flow
+
+- [ ] **Round system** — 90s timer, best of 3, health reset between rounds
+- [ ] **Countdown** — 3, 2, 1, FIGHT! before each round
+- [ ] **Win conditions** — KO, TKO (3 knockdowns), time decision
+- [ ] **Match end** — Winner screen, stats summary, rematch button
+- [ ] **Pause** — Voice or spacebar, overlay with resume/restart
+
+---
+
+### Phase 4: Polish
+**Goal**: Professional feel
+
+- [ ] **Advanced animations** — 5-frame attacks, idle breathing, walking, KO fall
+- [ ] **Visual effects** — Impact particles, motion trails, dust, ring texture
+- [ ] **Sound design** — Punch impacts, block thump, dodge whoosh, crowd, bell
+- [ ] **UI polish** — Smooth health bars, stamina color gradient, combo counter
+- [ ] **Camera effects** — Dynamic zoom, slow-mo on KO
+
+---
+
+### Phase 5: Advanced Features *(optional)*
+- [ ] **Special moves** — Combo sequences trigger power attacks
+- [ ] **Training mode** — AI opponent, dummy mode, tutorials
+- [ ] **Fighter customization** — Stats balance, visual options, localStorage profiles
+- [ ] **Tournament mode** — Bracket progression
+- [ ] **Replay system** — Record/playback match data
+
+## Technical Challenges & Solutions
+
+### Challenge: Voice Latency for Combat
+**Solution**: Reduce audio buffer to 0.75s, skip speaker ID after identification streak, direct phonetic matching returns instantly.
+
+### Challenge: Block is a Hold State but Voice is Discrete
+**Solution**: "block" command activates guard for 1.5 seconds, then auto-releases. Any attack or movement command cancels block early. This creates a strategic window rather than a permanent state.
+
+### Challenge: Preventing Command Spam
+**Solution**: 300ms cooldown between all actions, stamina costs, 100ms debounce on duplicate commands, recovery frames after attacks.
+
+### Challenge: Fairness in Voice Recognition
+**Solution**: Per-speaker calibration during enrollment, volume normalization, higher confidence threshold (0.65), command accuracy logging for balance tuning.
+
+### Challenge: Visual Clarity
+**Solution**: Large distinct sprites, color-coded players (blue/red), clear hit feedback (flash + shake), status indicators always visible.
+
+### Challenge: Two Games Sharing One Backend
+**Solution**: `VALID_COMMANDS` is a superset of all game commands. Frontend filters to relevant commands. Same WebSocket, same speaker system, same player assignments. Only the game-specific VoiceInput class differs.
+
+## Success Metrics
+
+### MVP
+- Both players can control fighters with voice
+- Commands trigger within 500ms
+- Punches visibly connect and reduce health
+- Winner clearly determined when health reaches 0
+- No crashes during 5-minute play session
+- Command recognition > 70% accuracy
+
+### Post-MVP
+- Command recognition > 85% accuracy
 - Average command-to-action latency < 400ms
 - Hit detection feels fair and consistent
-- Animations are smooth and readable
-- Game feels balanced (no dominant strategy)
-- Players can complete best-of-3 matches
+- Animations smooth and readable
+- No dominant strategy (balanced)
 - Fun factor: 80% of testers want rematch
 
 ### Performance Benchmarks
-- Maintain 60 FPS during active combat
-- Audio latency < 100ms (capture to backend)
-- WebSocket message processing < 50ms
-- Speaker identification < 200ms
+- 60 FPS during active combat
+- Audio capture to backend < 100ms
+- Speaker identification < 150ms
 - Command parsing (direct match) < 100ms
-- Total command latency budget: 450ms
+- Total command latency < 500ms
 
-### Accessibility Goals
+## Accessibility Goals
 - Voice recognition works for diverse accents
 - Clear visual feedback for all actions
-- Colorblind-friendly UI (not just red/blue)
+- Colorblind-friendly UI (use shapes/patterns, not just red/blue)
 - Keyboard fallback fully functional
 - Tutorial mode explains all mechanics
-- Stats screen aids understanding of gameplay
-    // Update scores
-    if (roundWinner === 'fighter1') {
-      this.scores.fighter1++;
-    } else if (roundWinner === 'fighter2') {
-      this.scores.fighter2++;
-    }
-    
-    this.roundWinners.push(roundWinner);
-    
-    // Check if match is over
-    if (this.currentRound >= this.maxRounds || 
-        this.scores.fighter1 > this.maxRounds / 2 ||
-        this.scores.fighter2 > this.maxRounds / 2) {
-      setTimeout(() => this.endMatch(), 3000);
-    } else {
-      setTimeout(() => this.startNextRound(), 3000);
-    }
-  }
-  
-  startNextRound() {
-    this.currentRound++;
-    this.roundTimer = ROUND_DURATION;
-    
-    // Reset fighters
-    this.fighter1.reset();
-    this.fighter2.reset();
-    
-    // Clear collision tracking
-    this.lastHitBy = { fighter1: null, fighter2: null };
-    this.hitTimestamps = { fighter1: [], fighter2: [] };
-    
-    // Start countdown
-    this.startCountdown(() => {
-      this.state = 'fighting';
-    });
-  }
-  
-  startCountdown(callback) {
-    this.state = 'countdown';
-    let count = 3;
-    
-    const countdown = setInterval(() => {
-      this.ui.countdownText = count > 0 ? count : 'FIGHT!';
-      count--;
-      
-      if (count < 0) {
-        clearInterval(countdown);
-        this.ui.countdownText = '';
-        callback();
-      }
-    }, 1000);
-  }
-  
-  endMatch() {
-    this.state = 'matchEnd';
-    
-    // Determine match winner
-    let matchWinner;
-    if (this.scores.fighter1 > this.scores.fighter2) {
-      matchWinner = 'Fighter 1';
-    } else if (this.scores.fighter2 > this.scores.fighter1) {
-      matchWinner = 'Fighter 2';
-    } else {
-      matchWinner = 'Draw';
-    }
-    
-    this.ui.winnerText = `${matchWinner} Wins!`;
-    console.log(`Match over! ${matchWinner}`);
-    
-    // Display stats
-    this.displayMatchStats();
-  }
-  
-  displayMatchStats() {
-    console.log('=== Match Stats ===');
-    console.log('Fighter 1:', this.fighter1.stats);
-    console.log('Fighter 2:', this.fighter2.stats);
-  }
-  
-  handleCommand(player, command) {
-    const fighter = player === 1 ? this.fighter1 : this.fighter2;
-    
-    if (this.state !== 'fighting') {
-      return;
-    }
-    
-    switch(command) {
-      case 'jab':
-      case 'left':
-        fighter.attack('jab');
-        break;
-      case 'cross':
-      case 'right':
-        fighter.attack('cross');
-        break;
-      case 'hook':
-        fighter.attack('hook');
-        break;
-      case 'uppercut':
-      case 'upper':
-        fighter.attack('uppercut');
-        break;
-      case 'block':
-      case 'guard':
-        fighter.block(true);
-        break;
-      case 'dodge':
-      case 'duck':
-        fighter.dodge();
-        break;
-      case 'forward':
-      case 'advance':
-        fighter.move('forward');
-        break;
-      case 'back':
-      case 'retreat':
-        fighter.move('back');
-        break;
-      case 'pause':
-        this.togglePause();
-        break;
-    }
-  }
-  
-  togglePause() {
-    this.isPaused = !this.isPaused;
-    this.state = this.isPaused ? 'paused' : 'fighting';
-  }
-  
-  render() {
-    // Clear canvas
-    this.renderer.clear();
-    
-    // Draw ring/background
-    this.renderer.drawRing();
-    
-    // Draw fighters
-    this.renderer.drawFighter(this.fighter1);
-    this.renderer.drawFighter(this.fighter2);
-    
-    // Draw UI
-    this.renderer.drawHealthBars(this.fighter1.health, this.fighter2.health);
-    this.renderer.drawStaminaBars(this.fighter1.stamina, this.fighter2.stamina);  // Post-MVP
-    this.renderer.drawRoundInfo(this.currentRound, this.roundTimer);  // Post-MVP
-    
-    // Draw game state overlays
-    if (this.state === 'countdown') {
-      this.renderer.drawCenterText(this.ui.countdownText, 72);
-    } else if (this.state === 'roundEnd') {
-      this.renderer.drawCenterText(`Round ${this.currentRound} Complete!`, 48);
-    } else if (this.state === 'matchEnd') {
-      this.renderer.drawCenterText(this.ui.winnerText, 64);
-      this.renderer.drawMatchStats(this.fighter1.stats, this.fighter2.stats);
-    } else if (this.state === 'paused') {
-      this.renderer.drawCenterText('PAUSED', 48);
-    }
-    
-    // Draw debug info if enabled
-    if (DEBUG_MODE) {
-      this.renderer.drawDebugInfo(this);
-    }
-  }
-  
-  reset() {
-    this.currentRound = 1;
-    this.roundTimer = ROUND_DURATION;
-    this.scores = { fighter1: 0, fighter2: 0 };
-    this.roundWinners = [];
-    this.fighter1.reset();
-    this.fighter2.reset();
-    this.state = 'menu';
-  }
-    // Stats Tracking (Post-MVP)
+
+## Reference Implementation
+
+### Fighter Class (Full)
+
+```javascript
+class Fighter {
+  constructor(x, y, facing, color) {
+    this.position = { x, y };
+    this.startPosition = { x, y };
+
+    // Stats
+    this.maxHealth = 100;
+    this.health = 100;
+    this.maxStamina = 100;      // post-MVP
+    this.stamina = 100;          // post-MVP
+
+    // State
+    this.state = 'idle';         // idle, attacking, blocking, dodging, hurt, KO
+    this.facing = facing;        // 'left' or 'right'
+    this.isAlive = true;
+    this.isInvincible = false;   // during dodge i-frames
+
+    // Combat timing
+    this.actionCooldown = 0;
+    this.currentAttack = null;
+    this.attackTimer = 0;
+    this.attackActive = false;
+    this.blockTimer = 0;         // auto-release countdown
+
+    // Stats tracking (post-MVP)
     this.stats = {
       punchesThrown: 0,
       punchesLanded: 0,
@@ -774,251 +540,167 @@ class BoxingVoiceInput extends VoiceInput {
       comboCount: 0,
       longestCombo: 0
     };
-    
-    // Visuals
-    this.color = color;                    // Player color (blue/red)
-    this.flashTimer = 0;                   // Hit flash effect
+
+    this.color = color;
+    this.flashTimer = 0;
   }
-  
-  // Core Methods
-  
+
   update(deltaTime, opponentPosition) {
-    // Update facing direction
     this.updateFacing(opponentPosition);
-    
-    // Update cooldowns
+
     if (this.actionCooldown > 0) {
       this.actionCooldown -= deltaTime;
     }
-    
+
+    // Auto-release block after 1.5 seconds
+    if (this.state === 'blocking') {
+      this.blockTimer -= deltaTime;
+      if (this.blockTimer <= 0) {
+        this.state = 'idle';
+      }
+    }
+
     // Update attack timing
     if (this.currentAttack) {
       this.attackTimer += deltaTime;
-      
-      // Activate hitbox during middle portion of attack
-      if (this.attackTimer > this.currentAttack.duration * 0.3 &&
-          this.attackTimer < this.currentAttack.duration * 0.7) {
-        this.attackActive = true;
-      } else {
-        this.attackActive = false;
-      }
-      
-      // End attack when duration complete
+
+      // Hitbox active during middle 40% of attack duration
+      this.attackActive = (
+        this.attackTimer > this.currentAttack.duration * 0.3 &&
+        this.attackTimer < this.currentAttack.duration * 0.7
+      );
+
       if (this.attackTimer >= this.currentAttack.duration) {
         this.endAttack();
       }
     }
-    
-    // Regenerate stamina (Post-MVP)
+
+    // Regenerate stamina (post-MVP)
     if (this.state !== 'blocking' && this.stamina < this.maxStamina) {
-      this.stamina += 10 * (deltaTime / 1000);  // 10 per second
-      this.stamina = Math.min(this.stamina, this.maxStamina);
+      this.stamina = Math.min(this.maxStamina, this.stamina + 10 * (deltaTime / 1000));
     }
-    
-    // Update animation frames (Post-MVP)
-    this.updateAnimation(deltaTime);
-    
-    // Update visual effects
+
     if (this.flashTimer > 0) {
       this.flashTimer -= deltaTime;
     }
-    
-    // Check if still alive
+
     if (this.health <= 0 && this.isAlive) {
       this.KO();
     }
   }
-  
+
   attack(attackType) {
-    // Check if can attack
-    if (!this.canPerformAction('attack')) {
-      console.log('Cannot attack: on cooldown or insufficient stamina');
-      return false;
-    }
-    
-    // Get attack definition from constants
+    if (!this.canPerformAction('attack')) return false;
+
     const attackDef = ATTACKS[attackType];
-    if (!attackDef) {
-      console.error('Unknown attack type:', attackType);
-      return false;
-    }
-    
-    // Consume stamina (Post-MVP)
-    this.stamina -= attackDef.staminaCost;
-    
-    // Set attack state
+    if (!attackDef) return false;
+
+    // Cancel block if active
+    if (this.state === 'blocking') this.state = 'idle';
+
+    this.stamina -= attackDef.staminaCost;  // post-MVP
     this.state = 'attacking';
     this.currentAttack = { ...attackDef };
     this.attackTimer = 0;
     this.attackActive = false;
     this.actionCooldown = ATTACK_COOLDOWN;
-    
-    // Track stats
     this.stats.punchesThrown++;
-    
-    console.log(`${this.color} fighter: ${attackType} attack!`);
     return true;
   }
-  
+
   endAttack() {
     this.state = 'idle';
     this.currentAttack = null;
     this.attackActive = false;
     this.attackTimer = 0;
   }
-  
-  block(isActive) {
-    if (isActive && this.canPerformAction('block')) {
-      this.state = 'blocking';
-      this.stamina -= 2 * (1/60);  // 2 per second at 60fps (Post-MVP)
-      return true;
-    } else {
-      if (this.state === 'blocking') {
-        this.state = 'idle';
-      }
-      return false;
-    }
+
+  block() {
+    if (!this.canPerformAction('block')) return false;
+    this.state = 'blocking';
+    this.blockTimer = 1500;  // auto-release after 1.5 seconds
+    return true;
   }
-  
+
   dodge() {
-    if (!this.canPerformAction('dodge')) {
-      return false;
-    }
-    
+    if (!this.canPerformAction('dodge')) return false;
+
+    // Cancel block if active
+    if (this.state === 'blocking') this.state = 'idle';
+
     this.state = 'dodging';
     this.isInvincible = true;
-    this.stamina -= DODGE_STAMINA_COST;  // Post-MVP
+    this.stamina -= DODGE_STAMINA_COST;  // post-MVP
     this.actionCooldown = DODGE_DURATION;
-    
-    // End dodge after duration
+
     setTimeout(() => {
       this.isInvincible = false;
-      if (this.state === 'dodging') {
-        this.state = 'idle';
-      }
+      if (this.state === 'dodging') this.state = 'idle';
     }, DODGE_DURATION);
-    
+
     this.stats.dodgesSuccessful++;
     return true;
   }
-  
+
   move(direction) {
-    if (!this.canPerformAction('move')) {
-      return false;
-    }
-    
-    const moveDistance = 50;  // pixels
-    
+    if (!this.canPerformAction('move')) return false;
+
+    // Cancel block if active
+    if (this.state === 'blocking') this.state = 'idle';
+
+    const moveDistance = 50;
+
     if (direction === 'forward') {
-      if (this.facing === 'right') {
-        this.position.x += moveDistance;
-      } else {
-        this.position.x -= moveDistance;
-      }
+      this.position.x += this.facing === 'right' ? moveDistance : -moveDistance;
     } else if (direction === 'back') {
-      if (this.facing === 'right') {
-        this.position.x -= moveDistance;
-      } else {
-        this.position.x += moveDistance;
-      }
+      this.position.x += this.facing === 'right' ? -moveDistance : moveDistance;
     }
-    
-    // Clamp position to canvas bounds
+
     this.position.x = Math.max(50, Math.min(750, this.position.x));
-    
     this.actionCooldown = MOVE_COOLDOWN;
     return true;
   }
-  
+
   takeDamage(amount, attackType) {
-    // Check invincibility (dodge)
-    if (this.isInvincible) {
-      console.log('Dodge successful! No damage taken.');
-      return 0;
-    }
-    
-    // Apply block reduction
+    if (this.isInvincible) return 0;
+
     let finalDamage = amount;
     if (this.state === 'blocking') {
-      finalDamage *= 0.4;  // 60% damage reduction
+      finalDamage *= 0.4;  // 60% reduction
       this.stats.blocksSuccessful++;
-      console.log(`Blocked! Damage reduced to ${finalDamage.toFixed(1)}`);
     }
-    
-    // Apply damage
-    this.health -= finalDamage;
-    this.health = Math.max(0, this.health);
-    
-    // Update stats
+
+    this.health = Math.max(0, this.health - finalDamage);
     this.stats.damageTaken += finalDamage;
-    
-    // Visual feedback
-    this.flashTimer = 100;  // Flash for 100ms
-    
-    // Enter hurt state briefly (unless blocking)
+    this.flashTimer = 100;
+
     if (this.state !== 'blocking') {
       this.state = 'hurt';
       setTimeout(() => {
-        if (this.state === 'hurt') {
-          this.state = 'idle';
-        }
+        if (this.state === 'hurt') this.state = 'idle';
       }, 200);
     }
-    
-    console.log(`${this.color} took ${finalDamage.toFixed(1)} damage. Health: ${this.health.toFixed(1)}`);
+
     return finalDamage;
   }
-  
+
   canPerformAction(actionType) {
-    // Cannot act if on cooldown
-    if (this.actionCooldown > 0) {
-      return false;
-    }
-    
-    // Cannot act if KO'd
-    if (!this.isAlive) {
-      return false;
-    }
-    
-    // Cannot act while already attacking
-    if (this.currentAttack) {
-      return false;
-    }
-    
-    // Check stamina for specific actions (Post-MVP)
-    if (actionType === 'attack' || actionType === 'dodge') {
-      // Would check stamina here in post-MVP
-      // return this.stamina >= requiredStamina;
-    }
-    
+    if (this.actionCooldown > 0) return false;
+    if (!this.isAlive) return false;
+    if (this.currentAttack && actionType !== 'block') return false;
     return true;
   }
-  
+
   updateFacing(opponentPosition) {
-    if (opponentPosition.x > this.position.x) {
-      this.facing = 'right';
-    } else {
-      this.facing = 'left';
-    }
+    this.facing = opponentPosition.x > this.position.x ? 'right' : 'left';
   }
-  
-  updateAnimation(deltaTime) {
-    // Post-MVP: Advance animation frames
-    this.animation.timer += deltaTime;
-    if (this.animation.timer >= this.animation.frameRate) {
-      this.animation.timer = 0;
-      this.animation.frame++;
-      // Loop or stop based on animation type
-    }
-  }
-  
+
   KO() {
     this.isAlive = false;
     this.state = 'KO';
     this.health = 0;
-    console.log(`${this.color} fighter KO'd!`);
   }
-  
+
   reset() {
     this.position = { ...this.startPosition };
     this.health = this.maxHealth;
@@ -1029,446 +711,259 @@ class BoxingVoiceInput extends VoiceInput {
     this.actionCooldown = 0;
     this.currentAttack = null;
     this.attackTimer = 0;
+    this.blockTimer = 0;
     this.flashTimer = 0;
   }
-  
+
   getHitbox() {
-    // Return current hitbox based on attack and facing
-    if (!this.attackActive || !this.currentAttack) {
-      return null;
-    }
-    
-    const hitbox = { ...this.hitbox };
-    hitbox.width = this.currentAttack.range;
-    
-    if (this.facing === 'right') {
-      hitbox.x = this.position.x + 20;
-    } else {
-      hitbox.x = this.position.x - this.currentAttack.range - 20;
-    }
-    hitbox.y = this.position.y;
-    
-    return hitbox;
-  }
-  
-  getHurtbox() {
+    if (!this.attackActive || !this.currentAttack) return null;
     return {
-      x: this.position.x - this.hurtbox.width / 2,
-      y: this.position.y - this.hurtbox.height,
-      width: this.hurtbox.width,
-      height: this.hurtbox.height
+      x: this.facing === 'right'
+        ? this.position.x + 20
+        : this.position.x - this.currentAttack.range - 20,
+      y: this.position.y - 40,
+      width: this.currentAttack.range,
+      height: 40
     };
   }
-  
-  render(ctx) {
-    // MVP: Simple shape rendering
-    // See Renderer.js for full drawing logic
-  }nds to game actions
-                       - Display command feedback UI
-                       - Volume-based attack modulation (post-MVP)
-    
-    Input.js         - Keyboard fallback controls
-                       - MVP: Arrow keys for player 1, WASD for player 2
-                       - Key mappings: Z/X = jab/cross, A/S = block/dodge
-                       - DEBUG: number keys for direct attack triggers
-    
-    AudioManager.js  - Sound effect player (post-MVP)
-                       - Load and cache audio files
-                       - play(soundName) with volume control
-                       - Background music management
-                       - Sound pooling for overlapping effects
-    
-    AnimationManager.js - Sprite animation controller (post-MVP)
-                       - Load sprite sheets
-                       - Define animation sequences
-                       - getCurrentFrame(animationName, time)
-                       - Manage animation state transitions
-```
 
-### Core Classes
-
-#### Fighter Class
-```javascript
-class Fighter {
-  - position { x, y }
-  - health (0-100)
-  - stamina (0-100)
-  - state (idle, attacking, blocking, etc.)
-  - facing (left/right)
-  - animation { currentFrame, frameTimer }
-  - cooldown (time until next action allowed)
-  
-  methods:
-  - update(deltaTime)
-  - attack(type)
-  - block()
-  - dodge()
-  - move(direction)
-  - takeDamage(amount, isBlocking)
-  - regenerateStamina()
-  - canAct() - check stamina and cooldown
+  getHurtbox() {
+    return {
+      x: this.position.x - 20,
+      y: this.position.y - 80,
+      width: 40,
+      height: 80
+    };
+  }
 }
 ```
 
-#### Game Class
+### Game Class (Full)
+
 ```javascript
 class Game {
-  - fighter1, fighter2
-  - gameState (menu, fighting, paused, roundEnd, gameOver)
-  - roundTimer
-  - currentRound
-  - scores { p1Rounds, p2Rounds }
-  
-  methods:
-  - startRound()
-  - update(deltaTime)
-  - checkCollisions()
-  - checkWinConditions()
-  - endRound()
-  - reset()
+  constructor() {
+    this.canvas = document.getElementById('gameCanvas');
+    this.ctx = this.canvas.getContext('2d');
+    this.canvas.width = CANVAS_WIDTH;
+    this.canvas.height = CANVAS_HEIGHT;
+
+    this.fighter1 = new Fighter(200, 400, 'right', 'blue');
+    this.fighter2 = new Fighter(600, 400, 'left', 'red');
+
+    this.state = 'menu';  // menu, countdown, fighting, paused, roundEnd, matchEnd
+    this.isPaused = false;
+    this.lastTime = 0;
+    this.deltaTime = 0;
+
+    // Round system (post-MVP)
+    this.roundTimer = ROUND_DURATION;
+    this.currentRound = 1;
+    this.maxRounds = 3;
+    this.roundWinners = [];
+    this.scores = { fighter1: 0, fighter2: 0 };
+
+    // Collision tracking
+    this.lastHitBy = { fighter1: null, fighter2: null };
+    this.hitTimestamps = { fighter1: [], fighter2: [] };
+
+    this.renderer = new Renderer(this.ctx);
+    this.ui = { countdownText: '', roundEndText: '', winnerText: '' };
+  }
+
+  start() {
+    this.state = 'fighting';
+    this.gameLoop(performance.now());
+  }
+
+  gameLoop(currentTime) {
+    this.deltaTime = currentTime - this.lastTime;
+    this.lastTime = currentTime;
+    this.update(this.deltaTime);
+    this.render();
+    requestAnimationFrame((time) => this.gameLoop(time));
+  }
+
+  update(deltaTime) {
+    if (this.state !== 'fighting') return;
+
+    this.fighter1.update(deltaTime, this.fighter2.position);
+    this.fighter2.update(deltaTime, this.fighter1.position);
+    this.checkCollisions();
+    this.enforceDistance();
+    this.checkWinConditions();
+
+    // Round timer (post-MVP)
+    if (this.roundTimer > 0) {
+      this.roundTimer -= deltaTime / 1000;
+      if (this.roundTimer <= 0) this.endRound('time');
+    }
+  }
+
+  checkCollisions() {
+    this.checkAttackHit(this.fighter1, this.fighter2, 'fighter2');
+    this.checkAttackHit(this.fighter2, this.fighter1, 'fighter1');
+  }
+
+  checkAttackHit(attacker, defender, defenderKey) {
+    if (!attacker.attackActive) return;
+
+    const hitbox = attacker.getHitbox();
+    const hurtbox = defender.getHurtbox();
+    if (!hitbox) return;
+
+    if (this.boxesCollide(hitbox, hurtbox)) {
+      if (this.lastHitBy[defenderKey] !== attacker.currentAttack) {
+        const damage = defender.takeDamage(
+          attacker.currentAttack.damage,
+          attacker.currentAttack.type
+        );
+        if (damage > 0) {
+          attacker.stats.punchesLanded++;
+          attacker.stats.damageDealt += damage;
+          this.hitTimestamps[defenderKey].push(performance.now());
+          this.lastHitBy[defenderKey] = attacker.currentAttack;
+        }
+      }
+    }
+  }
+
+  enforceDistance() {
+    const distance = Math.abs(this.fighter1.position.x - this.fighter2.position.x);
+    const minDistance = 100;
+
+    if (distance < minDistance) {
+      const push = (minDistance - distance) / 2;
+      if (this.fighter1.position.x < this.fighter2.position.x) {
+        this.fighter1.position.x -= push;
+        this.fighter2.position.x += push;
+      } else {
+        this.fighter1.position.x += push;
+        this.fighter2.position.x -= push;
+      }
+    }
+  }
+
+  boxesCollide(a, b) {
+    return a.x < b.x + b.width && a.x + a.width > b.x &&
+           a.y < b.y + b.height && a.y + a.height > b.y;
+  }
+
+  checkWinConditions() {
+    if (!this.fighter1.isAlive) this.endRound('KO', 'fighter2');
+    else if (!this.fighter2.isAlive) this.endRound('KO', 'fighter1');
+  }
+
+  endRound(reason, winner) {
+    if (this.state !== 'fighting') return;
+    this.state = 'roundEnd';
+
+    let roundWinner = winner;
+    if (reason === 'time') {
+      roundWinner = this.fighter1.health > this.fighter2.health
+        ? 'fighter1'
+        : this.fighter2.health > this.fighter1.health
+          ? 'fighter2'
+          : 'draw';
+    }
+
+    if (roundWinner === 'fighter1') this.scores.fighter1++;
+    else if (roundWinner === 'fighter2') this.scores.fighter2++;
+
+    this.roundWinners.push(roundWinner);
+
+    if (this.currentRound >= this.maxRounds ||
+        this.scores.fighter1 > this.maxRounds / 2 ||
+        this.scores.fighter2 > this.maxRounds / 2) {
+      setTimeout(() => this.endMatch(), 3000);
+    } else {
+      setTimeout(() => this.startNextRound(), 3000);
+    }
+  }
+
+  startNextRound() {
+    this.currentRound++;
+    this.roundTimer = ROUND_DURATION;
+    this.fighter1.reset();
+    this.fighter2.reset();
+    this.lastHitBy = { fighter1: null, fighter2: null };
+    this.hitTimestamps = { fighter1: [], fighter2: [] };
+    this.startCountdown(() => { this.state = 'fighting'; });
+  }
+
+  startCountdown(callback) {
+    this.state = 'countdown';
+    let count = 3;
+    const interval = setInterval(() => {
+      this.ui.countdownText = count > 0 ? String(count) : 'FIGHT!';
+      count--;
+      if (count < 0) {
+        clearInterval(interval);
+        this.ui.countdownText = '';
+        callback();
+      }
+    }, 1000);
+  }
+
+  endMatch() {
+    this.state = 'matchEnd';
+    if (this.scores.fighter1 > this.scores.fighter2) {
+      this.ui.winnerText = 'Fighter 1 Wins!';
+    } else if (this.scores.fighter2 > this.scores.fighter1) {
+      this.ui.winnerText = 'Fighter 2 Wins!';
+    } else {
+      this.ui.winnerText = 'Draw!';
+    }
+  }
+
+  handleCommand(player, command) {
+    const fighter = player === 1 ? this.fighter1 : this.fighter2;
+    if (this.state !== 'fighting') return;
+
+    switch (command) {
+      case 'jab': fighter.attack('jab'); break;
+      case 'cross': fighter.attack('cross'); break;
+      case 'hook': fighter.attack('hook'); break;
+      case 'uppercut': fighter.attack('uppercut'); break;
+      case 'block': fighter.block(); break;
+      case 'dodge': fighter.dodge(); break;
+      case 'forward': fighter.move('forward'); break;
+      case 'back': fighter.move('back'); break;
+      case 'pause': this.togglePause(); break;
+    }
+  }
+
+  togglePause() {
+    this.isPaused = !this.isPaused;
+    this.state = this.isPaused ? 'paused' : 'fighting';
+  }
+
+  render() {
+    this.renderer.clear();
+    this.renderer.drawRing();
+    this.renderer.drawFighter(this.fighter1);
+    this.renderer.drawFighter(this.fighter2);
+    this.renderer.drawHealthBars(this.fighter1.health, this.fighter2.health);
+
+    if (this.state === 'countdown') {
+      this.renderer.drawCenterText(this.ui.countdownText, 72);
+    } else if (this.state === 'roundEnd') {
+      this.renderer.drawCenterText(`Round ${this.currentRound} Complete!`, 48);
+    } else if (this.state === 'matchEnd') {
+      this.renderer.drawCenterText(this.ui.winnerText, 64);
+    } else if (this.state === 'paused') {
+      this.renderer.drawCenterText('PAUSED', 48);
+    }
+  }
+
+  reset() {
+    this.currentRound = 1;
+    this.roundTimer = ROUND_DURATION;
+    this.scores = { fighter1: 0, fighter2: 0 };
+    this.roundWinners = [];
+    this.fighter1.reset();
+    this.fighter2.reset();
+    this.state = 'menu';
+  }
 }
 ```
-
-### Voice Integration
-- Reuse existing speaker identification system
-- Command confidence threshold: 0.6 (higher than Pong for safety)
-- Simultaneous commands allowed (e.g., "forward jab")
-- Volume affects attack "charge" time (louder = faster windup)
-- Debounce: 100ms between same command to prevent double-triggers
-
-## MVP Implementation Priority
-
-### MVP Phase 1: Absolute Minimum Playable (PRIORITY 1)
-**Goal**: Two players can fight with basic commands and see who wins
-
-- [ ] **HTML Canvas Setup**
-  - Create boxing/index.html with 800x600 canvas
-  - Link to styles.css and JS files
-  - Add basic page structure with canvas element
-  
-- [ ] **Fighter Class - Minimal**
-  - Position (x, y coordinates)
-  - Health (0-100, displayed as bar)
-  - State: idle, attacking, hurt, KO
-  - Facing direction (left/right based on opponent position)
-  - Single sprite representation (colored rectangle with circle head)
-  - takeDamage(amount) method
-  - isAlive() check
-  
-- [ ] **Two Attack Types Only**
-  - **Jab**: Fast, 10 damage, 80px range, 200ms duration
-  - **Cross**: Slower, 20 damage, 90px range, 400ms duration
-  - Attack hit detection: simple distance check between fighters
-  - Cooldown: 300ms between any actions
-  - Visual: extend arm rectangle toward opponent
-  
-- [ ] **Basic Movement**
-  - Forward: move 50px toward opponent (max distance: 100px apart)
-  - Back: move 50px away (max distance: 400px apart)
-  - Movement speed: 200px/second
-  - No stamina cost in MVP
-  
-- [ ] **Voice Commands - Minimal Set**
-  - "jab" or "left"
-  - "cross" or "right"  
-  - "forward" or "advance"
-  - "back" or "retreat"
-  - Reuse existing VoiceInput.js with new command mapping
-  - No volume modulation in MVP
-  
-- [ ] **Basic UI**
-  - Two health bars at top (filled rectangles)
-  - Player names/numbers
-  - "Fight!" / "KO!" text display
-  - No stamina bars in MVP
-  
-- [ ] **Win Condition - Simple**
-  - First to 0 health loses
-  - Display winner name
-  - Manual refresh to restart (no rematch button)
-  
-- [ ] **Rendering**
-  - Clear canvas each frame
-  - Draw both fighters as simple shapes
-  - Draw health bars
-  - Draw game state text
-  - 60 FPS game loop with requestAnimationFrame
-
-**MVP Success Criteria**: 
-- Both players can see their fighters
-- Voice commands trigger visible actions
-- Punches land and reduce health
-- Winner is clearly shown
-- No crashes or freezes
-
----
-
-### Post-MVP Phase 2: Core Combat Feel
-**Goal**: Game feels responsive and satisfying to play
-
-- [ ] **Enhanced Fighter Sprites**
-  - 3-frame punch animations (windup, contact, recover)
-  - Distinct idle vs attacking poses
-  - Color-coded gloves and trunks (blue/red)
-  - Head, torso, arms, legs as separate shapes
-  - Scale: ~100px tall fighters
-  
-- [ ] **Complete Attack Set**
-  - **Hook**: 15 damage, 70px range, 350ms, medium speed
-  - **Uppercut**: 25 damage, 60px range, 500ms, slow/powerful
-  - Each attack has unique animation
-  - Attack state machine: windup → active hitbox → recovery
-  - Hit/miss feedback immediately visible
-  
-- [ ] **Defense Mechanics**
-  - **Block**: Hold state, reduces incoming damage by 60%
-  - **Dodge**: 300ms action, grants invincibility during animation
-  - Visual indicators: block shows raised guard, dodge shows crouch
-  - Voice commands: "block" / "guard", "dodge" / "duck"
-  
-- [ ] **Stamina System**
-  - 100 stamina max
-  - Costs: Jab (5), Cross (10), Hook (12), Uppercut (20), Dodge (15), Block (2/sec)
-  - Regenerates at 10/second when not blocking
-  - Cannot act when stamina < action cost
-  - Stamina bar visual (vertical bar next to fighter)
-  
-- [ ] **Hit Feedback**
-  - Screen shake on heavy hits (uppercut)
-  - Brief white flash on hit fighter
-  - Red damage number floats up from impact point
-  - Hurt animation: fighter staggers back 20px
-  - Miss indicator: "MISS" text appears briefly
-  
-- [ ] **Improved Collision**
-  - Hitbox visualization in debug mode
-  - Separate hurtbox and hitbox for each fighter
-  - Attack only hits during "active" frames
-  - Cannot hit opponent during their dodge i-frames
-
-**Phase 2 Success Criteria**:
-- Combat feels impactful
-- Players can strategize with all options
-- Visual feedback makes hits/blocks/dodges clear
-- Stamina adds resource management
-
----
-
-### Post-MVP Phase 3: Game Structure
-**Goal**: Proper match flow and progression
-
-- [ ] **Round System**
-  - 90-second timer countdown displayed
-  - Round ends on timer or KO
-  - Best of 3 rounds format
-  - Round counter UI (1/3, 2/3, 3/3)
-  - Brief intermission between rounds (3 seconds)
-  - Health resets each round, fighters return to start positions
-  
-- [ ] **Win Conditions - Complete**
-  - KO: Health reaches 0
-  - Time Decision: Higher health when timer expires
-  - Match Winner: Best of 3 rounds
-  - Victory screen with winner announcement
-  - Stats summary: Total damage dealt, punches landed, accuracy %
-  
-- [ ] **Game States**
-  - Menu/Intro screen with "Start Fight" option
-  - Pre-round countdown (3, 2, 1, FIGHT!)
-  - Active fighting
-  - Round end pause
-  - Match end with winner display
-  - Rematch button functionality
-  
-- [ ] **Pause System**
-  - "pause" voice command or spacebar
-  - Overlay menu: Resume, Restart, Quit
-  - Game timer stops during pause
-  - Resume countdown (3, 2, 1)
-
-**Phase 3 Success Criteria**:
-- Complete match can be played start to finish
-- Clear progression through rounds
-- Winner determination feels fair
-- Easy to start new match
-
----
-
-### Polish Phase 4: Enhanced Experience
-**Goal**: Professional feel and replayability
-
-- [ ] **Advanced Animations**
-  - 5 frames per attack for smoother motion
-  - Idle breathing animation (subtle bob)
-  - Walking animation for movement
-  - Victory pose for winner
-  - KO knockdown animation
-  - Block hit reaction (guard shake)
-  
-- [ ] **Visual Effects**
-  - Particle effects on punch impact (stars, lines)
-  - Motion blur trails on fast attacks
-  - Dust particles on footwork
-  - Ring canvas texture
-  - Crowd silhouettes in background (static or animated)
-  - Corner posts and ropes for ring boundaries
-  
-- [ ] **Sound Design**
-  - Punch impact sounds (thud, crack) - different per punch type
-  - Block sound (thump)
-  - Dodge whoosh
-  - Footstep sounds on movement
-  - Crowd ambience
-  - Bell sound for round start/end
-  - KO bell
-  - Victory fanfare
-  - Background music (optional, toggleable)
-  
-- [ ] **UI Polish**
-  - Smooth health bar animations (not instant drop)
-  - Stamina bar color changes (green → yellow → red)
-  - Fighter portraits/icons next to health bars
-  - Combo counter (hits landed in succession)
-  - "COMBO!" text on 3+ consecutive hits
-  - Last command indicator with fade-out
-  - Volume meter integrated into stamina bar glow
-  
-- [ ] **Camera Effects**
-  - Dynamic zoom based on fighter distance
-  - Pan to follow action
-  - Slow-motion on KO final hit
-  - Screen shake intensity based on damage
-  
-- [ ] **Stats Tracking**
-  - Punches thrown by type
-  - Accuracy percentage per fighter
-  - Total damage dealt/received
-  - Blocks successful
-  - Dodges successful
-  - Longest combo
-  - Time spent attacking vs defending
-  - Post-match stats screen with comparison
-
-**Phase 4 Success Criteria**:
-- Game looks and sounds professional
-- Every action has satisfying feedback
-- Players feel immersed in boxing match
-- Stats provide interesting post-match analysis
-
----
-
-### Advanced Features Phase 5 (Optional)
-**Goal**: Extended gameplay and variety
-
-- [ ] **Special Moves System**
-  - Combo sequences trigger special attacks
-  - Example: "jab, jab, cross" → Powerful combo finisher
-  - Special bar charges with successful hits
-  - Special moves have dramatic animations
-  - Voice command: "special" when bar is full
-  
-- [ ] **Fighter Customization**
-  - Choose fighter stats (Speed/Power/Defense balance)
-  - Visual customization: skin tone, trunks color, gloves
-  - Fighter name input
-  - Persistent profiles saved to localStorage
-  
-- [ ] **Training Mode**
-  - AI opponent with adjustable difficulty
-  - Dummy mode: opponent doesn't attack, infinite health
-  - Tutorial overlays explaining mechanics
-  - Practice specific commands
-  - Command accuracy statistics
-  
-- [ ] **Advanced AI**
-  - Easy: Random attacks, no defense
-  - Medium: Pattern-based attacks, occasional blocks
-  - Hard: Reads player patterns, counters, strategic spacing
-  - Boss AI: Special moves, aggressive playstyle
-  
-- [ ] **Tournament Mode**
-  - 4 or 8 fighter bracket
-  - Progress through matches to championship
-  - Increasing difficulty each round
-  - Trophy/achievement system
-  
-- [ ] **Replay System**
-  - Record match data (commands, positions, health over time)
-  - Playback with speed controls
-  - Save replays to localStorage
-  - Share replay JSON for viewing on other devices
-  
-- [ ] **Online Features** (Ambitious)
-  - WebRTC peer-to-peer connection
-  - Voice transmitted over network
-  - Latency compensation
-  - Quick match or friend invite
-  - Leaderboard with win/loss records
-
-**Phase 5 Success Criteria**:
-- Significant replay value added
-- Players can customize experience
-- Solo play is viable and fun
-- Competitive scene potential
-
-## Command Parsing Considerations
-
-### Phonetic Variations
-- "jab" → "job", "jap", "ja"
-- "cross" → "crawss", "craw"
-- "hook" → "huk", "hooked"
-- "uppercut" → "upper", "cut", "upperkat"
-- "block" → "blog", "blocked", "box"
-- "dodge" → "dodge", "duck", "doge"
-- "forward" → "for", "forward", "towards"
-- "back" → "bak", "backwards", "retreat"
-
-### Multi-Word Commands
-- "left jab" → parse as single jab command
-- "right cross" → parse as cross command
-- "move forward" → parse as forward
-- Allow natural language: "punch left", "throw a jab"
-
-## Technical Challenges & Solutions
-
-### Challenge: Fast Voice Response Time
-**Solution**: 
-- Reduce audio chunk size to 0.5s (from 1.5s)
-- Prioritize speed over perfect transcription
-- Use direct command matching before LLM fallback
-
-### Challenge: Preventing Button Mashing
-**Solution**:
-- Cooldown system between actions
-- Stamina cost prevents spam
-- Recovery frames after attacks
-
-### Challenge: Fairness in Voice Recognition
-**Solution**:
-- Per-speaker calibration during enrollment
-- Volume normalization
-- Command confidence logging for balance tuning
-
-### Challenge: Visual Clarity
-**Solution**:
-- Large, distinct sprites
-- Color-coded players
-- Clear hit feedback (flash, shake)
-- Status indicators always visible
-
-## Success Metrics
-- Command recognition accuracy > 90%
-- Average command-to-action latency < 0.5s
-- Game feels responsive and fair
-- Players can complete full 3-round matches
-- Clear winner determination
-- Fun factor: Players want to rematch
-
-## Future Expansion Ideas
-- **Career Mode**: Fight through ranked opponents
-- **Character Customization**: Different stats, appearances
-- **Special Moves**: Complex voice sequences unlock power moves
-- **Crowd Noise**: Dynamic audio based on fight intensity
-- **Replay System**: Record and review matches
-- **Online Multiplayer**: Voice over network with latency compensation
-- **Mobile Support**: Touch controls + voice hybrid
