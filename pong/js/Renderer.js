@@ -44,6 +44,8 @@ function drawGameStateText(gameState, winner) {
   } else if (gameState === 'paused') {
     drawText('PAUSED', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20, '36px monospace', COLOR_WHITE, 'center');
     drawText('Press SPACE to Resume', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 20, '18px monospace', COLOR_WHITE, 'center');
+  } else if (gameState === 'serving') {
+    drawText('Press SPACE to serve', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 40, '18px monospace', COLOR_WHITE, 'center');
   } else if (gameState === 'gameover') {
     drawText(winner + ' Wins!', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20, '36px monospace', COLOR_WHITE, 'center');
     drawText('Press SPACE to Restart', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 20, '18px monospace', COLOR_WHITE, 'center');

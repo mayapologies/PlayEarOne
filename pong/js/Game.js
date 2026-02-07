@@ -6,7 +6,8 @@ class Game {
     this.score1 = 0;
     this.score2 = 0;
     this.winner = '';
-    this.gameState = 'waiting'; // waiting, playing, paused, gameover
+    this.gameState = 'waiting'; // waiting, playing, serving, paused, gameover
+    this.serveDirection = null;
 
     this.ball = new Ball(
       this.canvasWidth / 2,
@@ -36,18 +37,30 @@ class Game {
     );
 
     initInput();
-    this.spaceHandled = false;
+    this.keyHandled = false;
+  }
+
+  isAnyKeyPressed() {
+    for (const key in keys) {
+      if (keys[key]) return true;
+    }
+    return false;
   }
 
   handleInput() {
-    if (keys[' ']) {
-      if (this.spaceHandled) return;
-      this.spaceHandled = true;
+    const anyKey = this.isAnyKeyPressed();
 
-      if (this.gameState === 'waiting') {
+    if (anyKey) {
+      if (this.keyHandled) return;
+      this.keyHandled = true;
+
+      if (this.gameState === 'waiting' && keys[' ']) {
         this.ball.reset(this.canvasWidth, this.canvasHeight);
         this.gameState = 'playing';
-      } else if (this.gameState === 'playing') {
+      } else if (this.gameState === 'serving' && keys[' ']) {
+        this.ball.reset(this.canvasWidth, this.canvasHeight, this.serveDirection);
+        this.gameState = 'playing';
+      } else if (this.gameState === 'playing' && keys[' ']) {
         this.gameState = 'paused';
       } else if (this.gameState === 'paused') {
         this.gameState = 'playing';
@@ -55,7 +68,7 @@ class Game {
         this.reset();
       }
     } else {
-      this.spaceHandled = false;
+      this.keyHandled = false;
     }
   }
 
@@ -114,7 +127,9 @@ class Game {
         this.gameState = 'gameover';
         return;
       }
-      this.ball.reset(this.canvasWidth, this.canvasHeight);
+      // Pause before next round; serve toward the scored-on player
+      this.serveDirection = 'left';
+      this.enterServeState();
       return;
     }
     if (this.ball.x + this.ball.radius > this.canvasWidth) {
@@ -125,12 +140,29 @@ class Game {
         this.gameState = 'gameover';
         return;
       }
-      this.ball.reset(this.canvasWidth, this.canvasHeight);
+      this.serveDirection = 'right';
+      this.enterServeState();
     }
+  }
+
+  enterServeState() {
+    this.ball.x = this.canvasWidth / 2;
+    this.ball.y = this.canvasHeight / 2;
+    this.ball.dx = 0;
+    this.ball.dy = 0;
+    this.ball.speedMultiplier = 1;
+    this.gameState = 'serving';
   }
 
   update() {
     this.handleInput();
+
+    // Allow paddle movement while serving
+    if (this.gameState === 'serving') {
+      this.leftPaddle.update(keys, this.canvasHeight);
+      this.rightPaddle.update(keys, this.canvasHeight);
+      return;
+    }
 
     if (this.gameState !== 'playing') return;
 
