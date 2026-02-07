@@ -14,6 +14,11 @@ class VoiceInput {
 
         this.activeTimers = {};
         this.commandTimers = {};
+        this.volumeDecayTimers = {};
+        
+        // Track last direction for continuous control
+        this.lastDirection = { 1: null, 2: null };
+        this.continuousActive = { 1: false, 2: false };
     }
 
     async initialize() {
@@ -157,10 +162,20 @@ class VoiceInput {
             if (data.type === 'command') {
                 if (!data.player) {
                     console.log('[Voice] no player assignment for speaker:', data.speaker);
+                    // Still update volume meter if we can identify the speaker
+                    this.updateVolumeMeter(data.speaker, data.volume || 0);
                 } else if (!data.command) {
                     console.log('[Voice] no command found in speech:', data.raw_text);
+                    // Update volume meter even without command
+                    this.updateVolumeMeter(data.player, data.volume || 0);
                 } else {
-                    this.handleVoiceCommand(data.player, data.command, data.command_confidence);
+                    this.handleVoiceCommand(data.player, data.command, data.command_confidence, data.volume || 0);
+                }
+            } else if (data.type === 'volume') {
+                // Continuous volume updates without commands
+                if (data.player) {
+                    this.updateVolumeMeter(data.player, data.volume || 0);
+                    this.handleContinuousControl(data.player, data.volume || 0);
                 }
             }
         };
@@ -180,9 +195,12 @@ class VoiceInput {
         };
     }
 
-    handleVoiceCommand(player, command, confidence) {
-        console.log('[Voice] command:', command, 'player:', player, 'confidence:', confidence);
+    handleVoiceCommand(player, command, confidence, volume = 0) {
+        console.log('[Voice] command:', command, 'player:', player, 'confidence:', confidence, 'volume:', volume.toFixed(2));
         if (confidence < 0.5) return;
+
+        // Update volume meter
+        this.updateVolumeMeter(player, volume);
 
         // Handle game control commands (start/serve/resume/pause)
         if (command === 'start' || command === 'serve' || command === 'resume') {
@@ -216,7 +234,11 @@ class VoiceInput {
         const key = mapping[command];
         if (!key) return;
 
-        this.simulateKeyPress(key);
+        // Store last direction for continuous control
+        this.lastDirection[player] = command;
+        this.continuousActive[player] = true;
+
+        this.simulateKeyPress(key, volume, command);
         this.showCommand(player, command);
     }
 
@@ -224,6 +246,7 @@ class VoiceInput {
         const el = document.getElementById(`player${player}Cmd`);
         if (!el) return;
 
+        // Show command text only (no volume bars)
         el.textContent = command.toUpperCase();
         el.classList.add('active');
 
@@ -234,20 +257,92 @@ class VoiceInput {
         this.commandTimers[player] = setTimeout(() => {
             el.classList.remove('active');
             delete this.commandTimers[player];
-        }, 500);
+        }, 1000);
     }
 
-    simulateKeyPress(key) {
-        if (this.activeTimers[key]) {
-            clearTimeout(this.activeTimers[key]);
+    updateVolumeMeter(player, volume) {
+        const el = document.getElementById(`player${player}Volume`);
+        if (!el) return;
+
+        // Map volume (0-1) directly to percentage (0-100%)
+        const percentage = Math.round(volume * 100);
+        el.style.bottom = `${percentage}%`;
+
+        // Auto-decay after 300ms if no new updates
+        if (this.volumeDecayTimers[player]) {
+            clearTimeout(this.volumeDecayTimers[player]);
         }
 
+        this.volumeDecayTimers[player] = setTimeout(() => {
+            el.style.bottom = '0%';
+            this.continuousActive[player] = false;
+            delete this.volumeDecayTimers[player];
+        }, 300);
+    }
+
+    handleContinuousControl(player, volume) {
+        // If player is actively speaking and has a last direction, apply continuous movement
+        if (!this.lastDirection[player] || volume < 0.1) {
+            return;
+        }
+
+        const mapping = this.playerKeys[player];
+        if (!mapping) return;
+
+        const direction = this.lastDirection[player];
+        const key = mapping[direction];
+        if (!key) return;
+
+        // Apply continuous key press with volume-based intensity
+        this.simulateKeyPress(key, volume, direction);
+    }
+
+    simulateKeyPress(key, volume = 0.5, command = null) {
+        // Don't clear existing timer - allow rapid fire commands to stack
+        // Each command adds its own movement
+        
+        // Normalize volume based on command word
+        // "up" and "down" naturally produce different volumes
+        let normalizedVolume = volume;
+        if (command === 'up') {
+            // "up" might be quieter, scale it up slightly
+            normalizedVolume = volume * 1.2;
+        } else if (command === 'down') {
+            // "down" might be louder, scale it down to match
+            normalizedVolume = volume * 0.9;
+        }
+        
+        // Clamp to 0-1 range
+        normalizedVolume = Math.min(1.0, Math.max(0.0, normalizedVolume));
+        
+        // Scale so 25% volume = full base movement, then exponential growth beyond
+        // 0.25 volume → 1.0 scaled, 0.5 volume → 2.0 scaled, etc.
+        const scaledVolume = normalizedVolume * 2.0;
+        
+        // Apply exponential scaling for dramatic differences at high volumes
+        const exponentialVolume = scaledVolume * scaledVolume;
+        
         keys[key] = true;
 
-        this.activeTimers[key] = setTimeout(() => {
+        // Map to key press duration: 25% volume gives 240ms, higher volumes give much more
+        const minDuration = 60;
+        const baseDuration = 240;  // What 25% volume should give
+        const pressDuration = minDuration + (exponentialVolume * (baseDuration - minDuration));
+        
+        // Allow exceeding base for very loud utterances
+        const finalDuration = Math.min(pressDuration, 800);  // Cap at 800ms max
+
+        // Create new timer that won't interfere with others
+        const timerId = setTimeout(() => {
             keys[key] = false;
-            delete this.activeTimers[key];
-        }, this.commandDuration);
+            // Clean up this specific timer
+            if (this.activeTimers[key] === timerId) {
+                delete this.activeTimers[key];
+            }
+        }, finalDuration);
+        
+        // Store the timer
+        this.activeTimers[key] = timerId;
     }
 
     async startAudioCapture() {

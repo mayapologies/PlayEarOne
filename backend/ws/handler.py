@@ -23,6 +23,8 @@ class CommandResult:
     command: Optional[str]
     raw_text: Optional[str]
     command_confidence: float
+    volume: float  # 0.0 to 1.0
+    speech_duration: float  # How long they've been speaking (seconds)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -44,6 +46,10 @@ class WebSocketHandler:
         # Per-connection state
         self.buffers: Dict[int, AudioBuffer] = {}
         self.enrollment_buffers: Dict[int, AudioBuffer] = {}
+        
+        # Track speech duration per speaker per connection
+        self.speech_start_time: Dict[tuple, Optional[float]] = {}  # (conn_id, speaker) -> start_time
+        self.last_speech_time: Dict[tuple, float] = {}  # (conn_id, speaker) -> timestamp
 
     async def handle_connection(self, websocket: WebSocket) -> None:
         """Main handler for a WebSocket connection."""
@@ -153,10 +159,12 @@ class WebSocketHandler:
 
         # Run processing in thread pool to avoid blocking
         loop = asyncio.get_event_loop()
+        conn_id = id(websocket)
         result = await loop.run_in_executor(
             None,
             self._process_audio_sync,
-            audio
+            audio,
+            conn_id
         )
 
         if result:
@@ -179,6 +187,65 @@ class WebSocketHandler:
         rms = np.sqrt(np.mean(audio ** 2))
         return rms < threshold
 
+    def _calculate_volume(self, audio: np.ndarray) -> float:
+        """Calculate normalized volume level (0.0 to 1.0) using RMS."""
+        rms = np.sqrt(np.mean(audio ** 2))
+        
+        # Adjusted thresholds for easier reach of high volumes
+        # Soft speech: 0.005-0.02, Normal: 0.02-0.06, Loud: 0.06+
+        min_threshold = 0.005  # Below this is silence
+        low_threshold = 0.02   # Soft speech
+        mid_threshold = 0.06   # Normal speech
+        high_threshold = 0.10  # Loud speech (reduced from 0.15)
+        
+        print(f"[Volume] RMS: {rms:.4f}", end="")
+        
+        if rms < min_threshold:
+            volume = 0.0
+        elif rms < low_threshold:
+            # 0.005-0.02 -> 0.0-0.33
+            volume = (rms - min_threshold) / (low_threshold - min_threshold) * 0.33
+        elif rms < mid_threshold:
+            # 0.02-0.06 -> 0.33-0.66
+            volume = 0.33 + (rms - low_threshold) / (mid_threshold - low_threshold) * 0.33
+        elif rms < high_threshold:
+            # 0.06-0.10 -> 0.66-1.0
+            volume = 0.66 + (rms - mid_threshold) / (high_threshold - mid_threshold) * 0.34
+        else:
+            volume = 1.0
+        
+        print(f" -> volume: {volume:.2f}")
+        return min(1.0, max(0.0, volume))
+
+    def _get_speech_duration(self, conn_id: int, speaker: str, is_speaking: bool) -> float:
+        """Calculate how long a speaker has been continuously speaking."""
+        import time
+        current_time = time.time()
+        key = (conn_id, speaker)
+        
+        if is_speaking:
+            if key not in self.speech_start_time or self.speech_start_time[key] is None:
+                # Start new speech session
+                self.speech_start_time[key] = current_time
+                self.last_speech_time[key] = current_time
+                duration = 0.1
+                print(f" [Duration] NEW session, duration: {duration:.2f}s")
+                return duration
+            else:
+                # Continue existing session
+                self.last_speech_time[key] = current_time
+                duration = current_time - self.speech_start_time[key]
+                # Cap at 1.5 seconds for tighter range
+                capped = min(duration, 1.5)
+                print(f" [Duration] CONTINUE session, duration: {capped:.2f}s (raw: {duration:.2f}s)")
+                return capped
+        else:
+            # Not speaking - reset IMMEDIATELY, no grace period
+            if key in self.speech_start_time and self.speech_start_time[key] is not None:
+                print(f" [Duration] RESET session (not speaking)")
+                self.speech_start_time[key] = None
+            return 0.0
+
     def _is_silence_hallucination(self, text: str) -> bool:
         """Check if transcription is a known Whisper silence hallucination."""
         if not text:
@@ -199,9 +266,14 @@ class WebSocketHandler:
         """Run command parsing (for parallel execution)."""
         return self.command_parser.parse(audio, sample_rate)
 
-    def _process_audio_sync(self, audio: np.ndarray) -> Optional[CommandResult]:
+    def _process_audio_sync(self, audio: np.ndarray, conn_id: int) -> Optional[CommandResult]:
         """Synchronous audio processing with parallel speaker ID and transcription."""
         try:
+            # Calculate volume first
+            volume = self._calculate_volume(audio)
+            # Consider any non-silent audio as speaking
+            is_speaking = volume > 0.0
+            
             # Skip very silent audio
             if self._is_audio_silent(audio):
                 return None
@@ -221,6 +293,9 @@ class WebSocketHandler:
             speaker_match = speaker_future.result()
             parsed = command_future.result()
 
+            # Calculate speech duration for this speaker
+            speech_duration = self._get_speech_duration(conn_id, speaker_match.name, is_speaking)
+
             # Filter only silence hallucinations
             if self._is_silence_hallucination(parsed.raw_text):
                 return None
@@ -233,7 +308,9 @@ class WebSocketHandler:
                     speaker_confidence=speaker_match.confidence,
                     command=parsed.command,
                     raw_text=parsed.raw_text,
-                    command_confidence=parsed.confidence
+                    command_confidence=parsed.confidence,
+                    volume=volume,
+                    speech_duration=speech_duration
                 )
 
             return None
