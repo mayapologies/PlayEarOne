@@ -3,13 +3,13 @@ class Ball {
     this.x = x;
     this.y = y;
     this.radius = radius;
-    this.dx = BALL_SPEED;
-    this.dy = BALL_SPEED;
+    this.dx = (Math.random() > 0.5 ? 1 : -1) * BALL_SPEED;
+    this.dy = (Math.random() * 1.4 - 0.7) * BALL_SPEED;
     this.speedMultiplier = 1;
   }
 
   update() {
-    const maxSpeed = 15; // Maximum absolute velocity
+    const maxSpeed = 25; // Maximum absolute velocity
     
     this.x += this.dx * this.speedMultiplier;
     this.y += this.dy * this.speedMultiplier;

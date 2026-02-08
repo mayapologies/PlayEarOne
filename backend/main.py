@@ -168,10 +168,11 @@ if os.path.exists(frontend_path):
 
 if __name__ == "__main__":
     import uvicorn
+    port = int(os.environ.get("PORT", 8000))
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=8000,
-        reload=True,
+        port=port,
+        reload=os.environ.get("RAILWAY_ENVIRONMENT") is None,
         log_level="info"
     )
