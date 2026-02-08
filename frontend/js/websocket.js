@@ -19,9 +19,8 @@ class WebSocketClient {
 
         // Determine WebSocket URL based on current location
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const host = window.location.hostname || 'localhost';
-        const port = window.location.port || '8000';
-        this.url = `${protocol}//${host}:${port}/ws`;
+        const host = window.location.host || 'localhost:8000';
+        this.url = `${protocol}//${host}/ws`;
     }
 
     connect() {
